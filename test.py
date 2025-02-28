@@ -22,28 +22,33 @@ routes = pd.read_csv('../data/static/routes.txt')
 routes_list = []
 directions_list = []
 route_short_name_list = []
-for index, row in single_start_df.iterrows():
+route_type_list = []
+for _, row in single_start_df.iterrows():
     if not math.isnan(float(row['trip_id'])):
         trip = trips.loc[trips['trip_id'] == int(row['trip_id'])]
         if not trip.empty:
             route_id = trip['route_id']
             direction_id = trip['direction_id']
             route_short_name = routes.loc[routes['route_id'] == float(route_id.iloc[0])]['route_short_name']
+            route_type = routes.loc[routes['route_id'] == float(route_id.iloc[0])]['route_type']
             routes_list.append(route_id.iloc[0])
             directions_list.append(direction_id.iloc[0])
             route_short_name_list.append(route_short_name.iloc[0])
+            route_type_list.append(route_type.iloc[0])
         else:
             routes_list.append(np.nan)
             directions_list.append(np.nan)
             route_short_name_list.append(np.nan)
+            route_type_list.append(np.nan)
     else:
         routes_list.append(np.nan)
         directions_list.append(np.nan)
         route_short_name_list.append(np.nan)
-
+        route_type_list.append(np.nan)
 single_start_df['route_id'] = np.asarray(routes_list)
 single_start_df['direction_id'] = np.asarray(directions_list)
 single_start_df['route_short_name'] = np.asarray(route_short_name_list)
+single_start_df['route_type'] = np.asarray(route_type_list)
 
 #print(single_start_df)
 single_start_df.to_csv("single_start.csv")
@@ -64,6 +69,40 @@ def appendNewPBMinute(hour, minute, total_df):
             temp_df = read_protobuf.read_protobuf('../data/feed/'+hour+'/'+filename, MessageType)    # use file instead of bytes
             temp_df = pd.DataFrame(temp_df['entity'].tolist())
             temp_df['source'] = filename
+
+            # Exclude data outside the bus terminal
+            temp_df = temp_df[((temp_df['latitude'] > 58.416) & (temp_df['latitude'] < 58.419) & (temp_df['longitude'] > 15.621) & (temp_df['longitude'] < 15.626))]
+
+            routes_list = []
+            directions_list = []
+            route_short_name_list = []
+            route_type_list = []
+            for _, row in temp_df.iterrows():
+                if not math.isnan(float(row['trip_id'])):
+                    trip = trips.loc[trips['trip_id'] == int(row['trip_id'])]
+                    if not trip.empty:
+                        routes_list.append(trip['route_id'].iloc[0])
+                        directions_list.append(trip['direction_id'].iloc[0])
+                        route_short_name_list.append(routes.loc[routes['route_id'] == float(trip['route_id'].iloc[0])]['route_short_name'].iloc[0])
+                        route_type_list.append(routes.loc[routes['route_id'] == float(trip['route_id'].iloc[0])]['route_type'].iloc[0])
+                    else:
+                        routes_list.append(np.nan)
+                        directions_list.append(np.nan)
+                        route_short_name_list.append(np.nan)
+                        route_type_list.append(np.nan)
+                else:
+                    routes_list.append(np.nan)
+                    directions_list.append(np.nan)
+                    route_short_name_list.append(np.nan)
+                    route_type_list.append(np.nan)
+            temp_df['route_id'] = np.asarray(routes_list)
+            temp_df['direction_id'] = np.asarray(directions_list)
+            temp_df['route_short_name'] = np.asarray(route_short_name_list)
+            temp_df['route_type'] = np.asarray(route_type_list)
+
+            # Exclude non-bus data
+            temp_df = temp_df[(temp_df['route_type'] == 700)]
+
             total_df = pd.concat([total_df, temp_df], ignore_index=True)
         except FileNotFoundError:
             print("File not found:", filename)
