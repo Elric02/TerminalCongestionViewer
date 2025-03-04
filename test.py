@@ -4,119 +4,165 @@ import numpy as np
 import read_protobuf
 import gtfs_realtime_pb2
 import math
-
-# For now this is done manually 
-#static_data = pykoda.datautils.load_static_data('otraf', '2022_03_22', remove_unused_stations=True)
+from pyproj import Geod
 
 
 # SINGLE START: only take data from 07:20:00
+def single_start():
+    
+    MessageType = gtfs_realtime_pb2.FeedMessage()
+    single_start_df = read_protobuf.read_protobuf('../data/feed/07/'+filename, MessageType)    # use file instead of bytes
+    single_start_df = pd.DataFrame(single_start_df['entity'].tolist())
 
-filename = 'otraf-vehiclepositions-2022-03-22T07-20-00Z.pb'
-MessageType = gtfs_realtime_pb2.FeedMessage()
-single_start_df = read_protobuf.read_protobuf('../data/feed/07/'+filename, MessageType)    # use file instead of bytes
-single_start_df = pd.DataFrame(single_start_df['entity'].tolist())
-
-trips = pd.read_csv('../data/static/trips.txt')
-routes = pd.read_csv('../data/static/routes.txt')
-
-routes_list = []
-directions_list = []
-route_short_name_list = []
-route_type_list = []
-for _, row in single_start_df.iterrows():
-    if not math.isnan(float(row['trip_id'])):
-        trip = trips.loc[trips['trip_id'] == int(row['trip_id'])]
-        if not trip.empty:
-            route_id = trip['route_id']
-            direction_id = trip['direction_id']
-            route_short_name = routes.loc[routes['route_id'] == float(route_id.iloc[0])]['route_short_name']
-            route_type = routes.loc[routes['route_id'] == float(route_id.iloc[0])]['route_type']
-            routes_list.append(route_id.iloc[0])
-            directions_list.append(direction_id.iloc[0])
-            route_short_name_list.append(route_short_name.iloc[0])
-            route_type_list.append(route_type.iloc[0])
+    routes_list = []
+    directions_list = []
+    route_short_name_list = []
+    route_type_list = []
+    for _, row in single_start_df.iterrows():
+        if not math.isnan(float(row['trip_id'])):
+            trip = trips.loc[trips['trip_id'] == int(row['trip_id'])]
+            if not trip.empty:
+                route_id = trip['route_id']
+                direction_id = trip['direction_id']
+                route_short_name = routes.loc[routes['route_id'] == float(route_id.iloc[0])]['route_short_name']
+                route_type = routes.loc[routes['route_id'] == float(route_id.iloc[0])]['route_type']
+                routes_list.append(route_id.iloc[0])
+                directions_list.append(direction_id.iloc[0])
+                route_short_name_list.append(route_short_name.iloc[0])
+                route_type_list.append(route_type.iloc[0])
+            else:
+                routes_list.append(np.nan)
+                directions_list.append(np.nan)
+                route_short_name_list.append(np.nan)
+                route_type_list.append(np.nan)
         else:
             routes_list.append(np.nan)
             directions_list.append(np.nan)
             route_short_name_list.append(np.nan)
             route_type_list.append(np.nan)
-    else:
-        routes_list.append(np.nan)
-        directions_list.append(np.nan)
-        route_short_name_list.append(np.nan)
-        route_type_list.append(np.nan)
-single_start_df['route_id'] = np.asarray(routes_list)
-single_start_df['direction_id'] = np.asarray(directions_list)
-single_start_df['route_short_name'] = np.asarray(route_short_name_list)
-single_start_df['route_type'] = np.asarray(route_type_list)
+    single_start_df['route_id'] = np.asarray(routes_list)
+    single_start_df['direction_id'] = np.asarray(directions_list)
+    single_start_df['route_short_name'] = np.asarray(route_short_name_list)
+    single_start_df['route_type'] = np.asarray(route_type_list)
 
-#print(single_start_df)
-single_start_df.to_csv("single_start.csv")
+    print(single_start_df)
+    single_start_df.to_csv("single_start.csv")
+    return single_start_df
 
 
 # ENTIRE HOUR: take all data from 07:20:00 to 08:19:59 included
+def entire_hour(single_start_df):
 
-total_df = single_start_df
-total_df['source'] = filename
-MessageType = gtfs_realtime_pb2.FeedMessage()
+    def appendNewPBMinute(hour, minute, total_df, MessageType):
+        print("Now starting hour", hour, "minute", minute)
+        for second in range(0, 60):
+            second = str(second).zfill(2)
+            try:
+                filename = 'otraf-vehiclepositions-2022-03-22T'+hour+'-'+minute+'-'+second+'Z.pb'
+                temp_df = read_protobuf.read_protobuf('../data/feed/'+hour+'/'+filename, MessageType)    # use file instead of bytes
+                temp_df = pd.DataFrame(temp_df['entity'].tolist())
+                temp_df['source'] = filename
 
-def appendNewPBMinute(hour, minute, total_df):
-    print("Now starting hour", hour, "minute", minute)
-    for second in range(0, 60):
-        second = str(second).zfill(2)
-        try:
-            filename = 'otraf-vehiclepositions-2022-03-22T'+hour+'-'+minute+'-'+second+'Z.pb'
-            temp_df = read_protobuf.read_protobuf('../data/feed/'+hour+'/'+filename, MessageType)    # use file instead of bytes
-            temp_df = pd.DataFrame(temp_df['entity'].tolist())
-            temp_df['source'] = filename
-
-            # Exclude data outside the bus terminal
-            temp_df = temp_df[((temp_df['latitude'] > 58.416) & (temp_df['latitude'] < 58.419) & (temp_df['longitude'] > 15.621) & (temp_df['longitude'] < 15.626))]
-
-            routes_list = []
-            directions_list = []
-            route_short_name_list = []
-            route_type_list = []
-            for _, row in temp_df.iterrows():
-                if not math.isnan(float(row['trip_id'])):
-                    trip = trips.loc[trips['trip_id'] == int(row['trip_id'])]
-                    if not trip.empty:
-                        routes_list.append(trip['route_id'].iloc[0])
-                        directions_list.append(trip['direction_id'].iloc[0])
-                        route_short_name_list.append(routes.loc[routes['route_id'] == float(trip['route_id'].iloc[0])]['route_short_name'].iloc[0])
-                        route_type_list.append(routes.loc[routes['route_id'] == float(trip['route_id'].iloc[0])]['route_type'].iloc[0])
+                # Exclude data outside the bus terminal
+                temp_df = temp_df[((temp_df['latitude'] > 58.416) & (temp_df['latitude'] < 58.419) & (temp_df['longitude'] > 15.621) & (temp_df['longitude'] < 15.626))]
+                routes_list = []
+                directions_list = []
+                route_short_name_list = []
+                route_type_list = []
+                for _, row in temp_df.iterrows():
+                    if not math.isnan(float(row['trip_id'])):
+                        trip = trips.loc[trips['trip_id'] == int(row['trip_id'])]
+                        if not trip.empty:
+                            routes_list.append(trip['route_id'].iloc[0])
+                            directions_list.append(trip['direction_id'].iloc[0])
+                            route_short_name_list.append(routes.loc[routes['route_id'] == float(trip['route_id'].iloc[0])]['route_short_name'].iloc[0])
+                            route_type_list.append(routes.loc[routes['route_id'] == float(trip['route_id'].iloc[0])]['route_type'].iloc[0])
+                        else:
+                            routes_list.append(np.nan)
+                            directions_list.append(np.nan)
+                            route_short_name_list.append(np.nan)
+                            route_type_list.append(np.nan)
                     else:
                         routes_list.append(np.nan)
                         directions_list.append(np.nan)
                         route_short_name_list.append(np.nan)
                         route_type_list.append(np.nan)
-                else:
-                    routes_list.append(np.nan)
-                    directions_list.append(np.nan)
-                    route_short_name_list.append(np.nan)
-                    route_type_list.append(np.nan)
-            temp_df['route_id'] = np.asarray(routes_list)
-            temp_df['direction_id'] = np.asarray(directions_list)
-            temp_df['route_short_name'] = np.asarray(route_short_name_list)
-            temp_df['route_type'] = np.asarray(route_type_list)
+                temp_df['route_id'] = np.asarray(routes_list)
+                temp_df['direction_id'] = np.asarray(directions_list)
+                temp_df['route_short_name'] = np.asarray(route_short_name_list)
+                temp_df['route_type'] = np.asarray(route_type_list)
 
-            # Exclude non-bus data
-            temp_df = temp_df[(temp_df['route_type'] == 700)]
+                # Exclude non-bus data
+                temp_df = temp_df[(temp_df['route_type'] == 700)]
 
-            total_df = pd.concat([total_df, temp_df], ignore_index=True)
-        except FileNotFoundError:
-            print("File not found:", filename)
+                total_df = pd.concat([total_df, temp_df], ignore_index=True)
+            except FileNotFoundError:
+                print("File not found:", filename)
+        return total_df
+
+    total_df = single_start_df
+    total_df['source'] = filename
+    MessageType = gtfs_realtime_pb2.FeedMessage()
+
+    hour = "07"
+    for minute in range(20, 60):
+        minute = str(minute).zfill(2)
+        total_df = appendNewPBMinute(hour, minute, total_df, MessageType)
+        
+    hour = "08"
+    for minute in range(0, 20):
+        minute = str(minute).zfill(2)
+        total_df = appendNewPBMinute(hour, minute, total_df, MessageType)
+
+    print(total_df)
+    total_df.to_csv("entire_hour.csv")
     return total_df
 
-hour = "07"
-for minute in range(20, 60):
-    minute = str(minute).zfill(2)
-    total_df = appendNewPBMinute(hour, minute, total_df)
-    
-hour = "08"
-for minute in range(0, 20):
-    minute = str(minute).zfill(2)
-    total_df = appendNewPBMinute(hour, minute, total_df)
+def entire_hour_berths(entire_hour_df):
+    berths_df = pd.read_csv("berths.csv")
+    # Assign a berth number to each stopped bus in range of a berth
+    entire_hour_stopped_df = entire_hour_df[(entire_hour_df['speed'] == 0)].copy()
+    assigned_berths = []
+    print(entire_hour_stopped_df)
+    for i, row in entire_hour_stopped_df.iterrows():
+        if i%500 == 0:
+            print("Value", i, "/", len(entire_hour_df))
+        guessed_berth = None
+        for _, berth in berths_df.iterrows():
+            geod = Geod(ellps="WGS84") # Define the geodetic model
+            _, _, distance = geod.inv(row['longitude'], row['latitude'], berth['longitude'], berth['latitude']) # Compute geodesic distance
+            if distance <= 6: # True if distance is equal or less than 6 meters
+                guessed_berth = berth['berth']
+        assigned_berths.append(guessed_berth)
+    entire_hour_stopped_df['assigned_berth'] = assigned_berths
+    entire_hour_stopped_df.to_csv("entire_hour_berths.csv")
+    return entire_hour_stopped_df
 
-print(total_df)
-total_df.to_csv("entire_hour.csv")
+
+# For now this is done manually 
+#static_data = pykoda.datautils.load_static_data('otraf', '2022_03_22', remove_unused_stations=True)
+
+filename = 'otraf-vehiclepositions-2022-03-22T07-20-00Z.pb'
+trips = pd.read_csv('../data/static/trips.txt')
+routes = pd.read_csv('../data/static/routes.txt')
+
+#single_start_df = single_start()
+#entire_hour_df = entire_hour(single_start_df.drop(single_start_df.index))
+#entire_hour_stopped_df = entire_hour_berths(entire_hour_df)
+single_start_df = pd.read_csv("single_start.csv")
+entire_hour_df = pd.read_csv("entire_hour.csv")
+entire_hour_stopped_df = pd.read_csv("entire_hour_berths.csv")
+
+vehicles = entire_hour_stopped_df['vehicle.id'].unique()
+for vehicle in vehicles:
+    only_selected_vehicle = entire_hour_stopped_df.loc[entire_hour_stopped_df['vehicle.id'] == vehicle]
+    assigned_berths = only_selected_vehicle['assigned_berth']
+    berth_shifts = assigned_berths != assigned_berths.shift()
+    counts = berth_shifts.cumsum().value_counts()
+    # Get values of berths assigned at least 10x consecutively
+    result = only_selected_vehicle[berth_shifts.cumsum().isin(counts[counts >= 10].index)]['assigned_berth'].unique()
+    print(vehicle, result)
+    
+
+
+#TODO: next step: get the same output but coming from the static data
