@@ -118,6 +118,7 @@ def entire_hour(single_start_df):
     total_df.to_csv("entire_hour.csv")
     return total_df
 
+# Adding detected berths for all vehicles
 def entire_hour_berths(entire_hour_df):
     berths_df = pd.read_csv("berths.csv")
     # Assign a berth number to each stopped bus in range of a berth
@@ -145,6 +146,8 @@ def entire_hour_berths(entire_hour_df):
 filename = 'otraf-vehiclepositions-2022-03-22T07-20-00Z.pb'
 trips = pd.read_csv('../data/static/trips.txt')
 routes = pd.read_csv('../data/static/routes.txt')
+stops = pd.read_csv('../data/static/stops.txt')
+stop_times = pd.read_csv('../data/static/stop_times.txt')
 
 #single_start_df = single_start()
 #entire_hour_df = entire_hour(single_start_df.drop(single_start_df.index))
@@ -153,6 +156,10 @@ single_start_df = pd.read_csv("single_start.csv")
 entire_hour_df = pd.read_csv("entire_hour.csv")
 entire_hour_stopped_df = pd.read_csv("entire_hour_berths.csv")
 
+
+# Using static data to compare computed and detected berths
+
+results = []
 vehicles = entire_hour_stopped_df['vehicle.id'].unique()
 for vehicle in vehicles:
     only_selected_vehicle = entire_hour_stopped_df.loc[entire_hour_stopped_df['vehicle.id'] == vehicle]
@@ -161,8 +168,35 @@ for vehicle in vehicles:
     counts = berth_shifts.cumsum().value_counts()
     # Get values of berths assigned at least 10x consecutively
     result = only_selected_vehicle[berth_shifts.cumsum().isin(counts[counts >= 10].index)]['assigned_berth'].unique()
-    print(vehicle, result)
+    # Get associated trips to this vehicle for this time period
+    vehicle_trips = only_selected_vehicle['trip_id'].unique()
     
+    vehicle_routes = []
+    directions = []
+    computed_berths = []
+    for vehicle_trip in vehicle_trips:
+        associated_trip_gtfs = trips.loc[trips['trip_id'] == vehicle_trip]
+        # Get associated routes short names
+        route_id = associated_trip_gtfs['route_id'].iloc[0]
+        route_short_name = routes.loc[routes['route_id'] == route_id]['route_short_name'].iloc[0]
+        vehicle_routes.append(route_short_name)
+        # Get associated directions 
+        direction_id = associated_trip_gtfs['direction_id'].iloc[0]
+        directions.append(direction_id)
+        # Get associated berths at Linköpings Resecentrum
+        stops_in_trip = stop_times.loc[stop_times['trip_id'] == vehicle_trip]['stop_id']
+        lkpg_resecentrum = "90220050000500" # all stops at Linköping Centrum start with this sequence (and no other stop does)
+        stops_in_trip_filtered = [stop for stop in stops_in_trip.tolist() if str(stop)[:len(lkpg_resecentrum)] == lkpg_resecentrum]
+        # len(stops_in_trip_filtered) should always be 1, but maybe a trip could have two stops at the terminal
+        for stop in stops_in_trip_filtered:
+            computed_berth = stops.loc[stops['stop_id'] == stop]['platform_code'].iloc[0]
+            computed_berths.append(computed_berth)
+    computed_berths = pd.Series(computed_berths).unique().tolist()
+    #print("trips id:", vehicle_trips, "routes id:", vehicle_routes, "directions:", directions, "computed berths:", computed_berths, "detected berths:", result)
+    results.append({"vehicle": vehicle, "trips": vehicle_trips, "routes": vehicle_routes, "directions": directions, "computed": computed_berths, "detected": result})
 
-
-#TODO: next step: get the same output but coming from the static data
+results_df = pd.DataFrame(results)
+print(results_df)
+exact_same = np.where((results_df['computed'].apply(set) & results_df['detected'].apply(set)), 1, 0)
+comparison = results_df.apply(lambda row: "same" if set(row['computed']) == set(row['detected']) else ("partial" if set(row['computed']) & set(row['detected']) else "different"), axis=1)
+print(comparison.value_counts())
