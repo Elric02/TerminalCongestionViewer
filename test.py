@@ -11,7 +11,7 @@ from pyproj import Geod
 def single_start():
     
     MessageType = gtfs_realtime_pb2.FeedMessage()
-    single_start_df = read_protobuf.read_protobuf('../data/feed/07/'+filename, MessageType)    # use file instead of bytes
+    single_start_df = read_protobuf.read_protobuf('../data/vehiclepositions/07/'+filename, MessageType)    # use file instead of bytes
     single_start_df = pd.DataFrame(single_start_df['entity'].tolist())
 
     routes_list = []
@@ -59,7 +59,7 @@ def entire_hour(single_start_df):
             second = str(second).zfill(2)
             try:
                 filename = 'otraf-vehiclepositions-2022-03-22T'+hour+'-'+minute+'-'+second+'Z.pb'
-                temp_df = read_protobuf.read_protobuf('../data/feed/'+hour+'/'+filename, MessageType)    # use file instead of bytes
+                temp_df = read_protobuf.read_protobuf('../data/vehiclepositions/'+hour+'/'+filename, MessageType)    # use file instead of bytes
                 temp_df = pd.DataFrame(temp_df['entity'].tolist())
                 temp_df['source'] = filename
 
@@ -166,8 +166,8 @@ for vehicle in vehicles:
     assigned_berths = only_selected_vehicle['assigned_berth']
     berth_shifts = assigned_berths != assigned_berths.shift()
     counts = berth_shifts.cumsum().value_counts()
-    # Get values of berths assigned at least 10x consecutively
-    result = only_selected_vehicle[berth_shifts.cumsum().isin(counts[counts >= 10].index)]['assigned_berth'].unique()
+    # Get values of berths assigned at least 5x consecutively
+    result = only_selected_vehicle[berth_shifts.cumsum().isin(counts[counts >= 5].index)]['assigned_berth'].unique()
     # Get associated trips to this vehicle for this time period
     vehicle_trips = only_selected_vehicle['trip_id'].unique()
     
@@ -200,3 +200,13 @@ print(results_df)
 exact_same = np.where((results_df['computed'].apply(set) & results_df['detected'].apply(set)), 1, 0)
 comparison = results_df.apply(lambda row: "same" if set(row['computed']) == set(row['detected']) else ("partial" if set(row['computed']) & set(row['detected']) else "different"), axis=1)
 print(comparison.value_counts())
+
+
+# Tests with the TripUpdates feed
+MessageType = gtfs_realtime_pb2.FeedMessage()
+test_df = read_protobuf.read_protobuf('../data/tripupdates/07/otraf-tripupdates-2022-03-22T07-00-05Z.pb', MessageType)
+test_df = pd.DataFrame(test_df['entity'].tolist())
+#print("-----------------------")
+#print(test_df)
+#print(pd.DataFrame(test_df['stop_time_update'].tolist()))
+#pd.DataFrame(test_df['stop_time_update'].tolist()).to_csv("tripupdates_test.csv")
