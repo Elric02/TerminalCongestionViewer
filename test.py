@@ -51,8 +51,8 @@ def single_start(filename):
     return single_start_df
 
 
-# ENTIRE HOUR: take all data from 07:20:00 to 08:19:59 included
-def entire_hour():
+# ENTIRE HOUR: take data for a certain period
+def entire_hour(time_ranges):
 
     def appendNewPBMinute(hour, minute, second, total_df, MessageType):
         try:
@@ -100,14 +100,6 @@ def entire_hour():
 
     total_df = pd.DataFrame()
     MessageType = gtfs_realtime_pb2.FeedMessage()
-
-    # Input here desired time ranges to take into account. For example, [[7, 16, 0], [7, 32, 35]] is "from 07:16:00 to 07:32:35" (both included)
-    time_ranges = [
-        [[7, 16, 0], [7, 32, 35]],
-        [[7, 37, 25], [7, 53, 25]],
-        [[8, 11, 15], [8, 30, 00]],
-        [[8, 36, 35], [8, 38, 50]]
-    ]
     
     for time_range in time_ranges:
         timestamp = 3600*time_range[0][0] + 60*time_range[0][1] + time_range[0][2]
@@ -150,6 +142,58 @@ def entire_hour_berths(entire_hour_df):
     entire_hour_stopped_df.to_csv("entire_hour_berths.csv")
     return entire_hour_stopped_df
 
+# Using static data to compare computed and detected berths
+def entire_hour_ressults(entire_hour_stopped_df, trips, routes, stops, stop_times):
+    results = []
+    results_details = []
+    vehicles = entire_hour_stopped_df['vehicle.id'].unique()
+    for vehicle in vehicles:
+        only_selected_vehicle = entire_hour_stopped_df.loc[entire_hour_stopped_df['vehicle.id'] == vehicle]
+        assigned_berths = only_selected_vehicle['assigned_berth']
+        berth_shifts = assigned_berths != assigned_berths.shift()
+        counts = berth_shifts.cumsum().value_counts()
+        # Get values of berths assigned at least 5x consecutively
+        result = only_selected_vehicle[berth_shifts.cumsum().isin(counts[counts >= 5].index)]['assigned_berth'].unique()
+        result_with_times = only_selected_vehicle[berth_shifts.cumsum().isin(counts[counts >= 5].index)][['assigned_berth', 'timestamp']]
+        # Get associated trips to this vehicle for this time period
+        vehicle_trips = only_selected_vehicle['trip_id'].unique()
+        
+        vehicle_routes = []
+        directions = []
+        computed_berths = []
+        for vehicle_trip in vehicle_trips:
+            # Do not count not-in-service trips
+            if math.isnan(float(vehicle_trip)):
+                continue
+            associated_trip_gtfs = trips.loc[trips['trip_id'].apply(str) == str(vehicle_trip)]
+            # Get associated routes short names
+            route_id = associated_trip_gtfs['route_id'].iloc[0]
+            route_short_name = routes.loc[routes['route_id'] == route_id]['route_short_name'].iloc[0]
+            vehicle_routes.append(route_short_name)
+            # Get associated directions 
+            direction_id = associated_trip_gtfs['direction_id'].iloc[0]
+            directions.append(direction_id)
+            # Get associated berths at Linköpings Resecentrum
+            stops_in_trip = stop_times.loc[stop_times['trip_id'].apply(str) == str(vehicle_trip)]['stop_id']
+            lkpg_resecentrum = "90220050000500" # all stops at Linköping Centrum start with this sequence (and no other stop does)
+            stops_in_trip_filtered = [stop for stop in stops_in_trip.tolist() if str(stop)[:len(lkpg_resecentrum)] == lkpg_resecentrum]
+            # len(stops_in_trip_filtered) should always be 1, but maybe a trip could have two stops at the terminal
+            for stop in stops_in_trip_filtered:
+                computed_berth = stops.loc[stops['stop_id'] == stop]['platform_code'].iloc[0]
+                computed_berths.append(computed_berth)
+        computed_berths = pd.Series(computed_berths).unique().tolist()
+        #print("trips id:", vehicle_trips, "routes id:", vehicle_routes, "directions:", directions, "computed berths:", computed_berths, "detected berths:", result)
+        results.append({"vehicle": vehicle, "trips": vehicle_trips, "routes": vehicle_routes, "directions": directions, "computed": computed_berths, "detected": result})
+        results_details.append({"vehicle": vehicle, "trips": vehicle_trips, "routes": vehicle_routes, "directions": directions, "computed": computed_berths, "detected_details": result_with_times})
+
+    results_df = pd.DataFrame(results)
+    results_details_df = pd.DataFrame(results_details)
+    print(results_details_df)
+    results_details_df.to_csv('entire_hour_results.csv')
+    comparison = results_df.apply(lambda row: "same" if set(row['computed']) == set(row['detected']) else ("partial" if set(row['computed']) & set(row['detected']) else "different"), axis=1)
+    print(comparison.value_counts())
+    return results_df, results_details_df
+
 
 # For now this is done manually 
 #static_data = pykoda.datautils.load_static_data('otraf', '2022_03_22', remove_unused_stations=True)
@@ -160,73 +204,19 @@ stops = pd.read_csv('../data/static/stops.txt')
 stop_times = pd.read_csv('../data/static/stop_times.txt')
 
 #single_start_df = single_start('otraf-vehiclepositions-2022-03-22T07-16-00Z.pb')
-entire_hour_df = entire_hour()
+# Input here desired time ranges to take into account. For example, [[7, 16, 0], [7, 32, 35]] is "from 07:16:00 to 07:32:35" (both included)
+time_ranges = [
+    [[7, 16, 0], [7, 32, 35]],
+    [[7, 37, 25], [7, 53, 25]],
+    [[8, 11, 15], [8, 30, 00]],
+    [[8, 36, 35], [8, 38, 50]]
+]
+entire_hour_df = entire_hour(time_ranges)
 entire_hour_stopped_df = entire_hour_berths(entire_hour_df)
+results_df, results_details_df = entire_hour_ressults(entire_hour_stopped_df, trips, routes, stops, stop_times)
 #single_start_df = pd.read_csv("single_start.csv")
 #entire_hour_df = pd.read_csv("entire_hour.csv")
 #entire_hour_stopped_df = pd.read_csv("entire_hour_berths.csv")
-
-
-# Using static data to compare computed and detected berths
-results = []
-results_details = []
-vehicles = entire_hour_stopped_df['vehicle.id'].unique()
-for vehicle in vehicles:
-    only_selected_vehicle = entire_hour_stopped_df.loc[entire_hour_stopped_df['vehicle.id'] == vehicle]
-    assigned_berths = only_selected_vehicle['assigned_berth']
-    berth_shifts = assigned_berths != assigned_berths.shift()
-    counts = berth_shifts.cumsum().value_counts()
-    # Get values of berths assigned at least 5x consecutively
-    result = only_selected_vehicle[berth_shifts.cumsum().isin(counts[counts >= 5].index)]['assigned_berth'].unique()
-    result_with_times = only_selected_vehicle[berth_shifts.cumsum().isin(counts[counts >= 5].index)][['assigned_berth', 'timestamp']]
-    # Get associated trips to this vehicle for this time period
-    vehicle_trips = only_selected_vehicle['trip_id'].unique()
-    
-    vehicle_routes = []
-    directions = []
-    computed_berths = []
-    for vehicle_trip in vehicle_trips:
-        # Do not count not-in-service trips
-        if math.isnan(float(vehicle_trip)):
-            continue
-        associated_trip_gtfs = trips.loc[trips['trip_id'].apply(str) == str(vehicle_trip)]
-        # Get associated routes short names
-        route_id = associated_trip_gtfs['route_id'].iloc[0]
-        route_short_name = routes.loc[routes['route_id'] == route_id]['route_short_name'].iloc[0]
-        vehicle_routes.append(route_short_name)
-        # Get associated directions 
-        direction_id = associated_trip_gtfs['direction_id'].iloc[0]
-        directions.append(direction_id)
-        # Get associated berths at Linköpings Resecentrum
-        stops_in_trip = stop_times.loc[stop_times['trip_id'].apply(str) == str(vehicle_trip)]['stop_id']
-        lkpg_resecentrum = "90220050000500" # all stops at Linköping Centrum start with this sequence (and no other stop does)
-        stops_in_trip_filtered = [stop for stop in stops_in_trip.tolist() if str(stop)[:len(lkpg_resecentrum)] == lkpg_resecentrum]
-        # len(stops_in_trip_filtered) should always be 1, but maybe a trip could have two stops at the terminal
-        for stop in stops_in_trip_filtered:
-            computed_berth = stops.loc[stops['stop_id'] == stop]['platform_code'].iloc[0]
-            computed_berths.append(computed_berth)
-    computed_berths = pd.Series(computed_berths).unique().tolist()
-    #print("trips id:", vehicle_trips, "routes id:", vehicle_routes, "directions:", directions, "computed berths:", computed_berths, "detected berths:", result)
-    results.append({"vehicle": vehicle, "trips": vehicle_trips, "routes": vehicle_routes, "directions": directions, "computed": computed_berths, "detected": result})
-    results_details.append({"vehicle": vehicle, "trips": vehicle_trips, "routes": vehicle_routes, "directions": directions, "computed": computed_berths, "detected_details": result_with_times})
-
-results_df = pd.DataFrame(results)
-results_details_df = pd.DataFrame(results_details)
-print(results_df)
-results_df.to_csv('entire_hour_results.csv')
-exact_same = np.where((results_df['computed'].apply(set) & results_df['detected'].apply(set)), 1, 0)
-comparison = results_df.apply(lambda row: "same" if set(row['computed']) == set(row['detected']) else ("partial" if set(row['computed']) & set(row['detected']) else "different"), axis=1)
-print(comparison.value_counts())
-
-
-# Tests with the TripUpdates feed
-MessageType = gtfs_realtime_pb2.FeedMessage()
-test_df = read_protobuf.read_protobuf('../data/tripupdates/07/otraf-tripupdates-2022-03-22T07-00-05Z.pb', MessageType)
-test_df = pd.DataFrame(test_df['entity'].tolist())
-#print("-----------------------")
-#print(test_df)
-#print(pd.DataFrame(test_df['stop_time_update'].tolist()))
-#pd.DataFrame(test_df['stop_time_update'].tolist()).to_csv("tripupdates_test.csv")
 
 
 # Prepare details list for video verification
@@ -250,3 +240,18 @@ timemarks_df['timestart'] = timemarks_df['timestart'].apply(lambda x: datetime.f
 timemarks_df['timestop'] = timemarks_df['timestop'].apply(lambda x: datetime.fromtimestamp(int(str(x))))
 print(timemarks_df)
 timemarks_df.to_csv('for_video_verification.csv')
+
+
+
+
+
+
+
+# Tests with the TripUpdates feed
+#MessageType = gtfs_realtime_pb2.FeedMessage()
+#test_df = read_protobuf.read_protobuf('../data/tripupdates/07/otraf-tripupdates-2022-03-22T07-00-05Z.pb', MessageType)
+#test_df = pd.DataFrame(test_df['entity'].tolist())
+#print("-----------------------")
+#print(test_df)
+#print(pd.DataFrame(test_df['stop_time_update'].tolist()))
+#pd.DataFrame(test_df['stop_time_update'].tolist()).to_csv("tripupdates_test.csv")
