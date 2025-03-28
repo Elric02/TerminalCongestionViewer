@@ -225,10 +225,14 @@ entire_hour_stopped_df = pd.read_csv("entire_hour_berths.csv", dtype={'vehicle.i
 nb_consecutive = 5
 results_df, results_details_df = entire_hour_results(entire_hour_stopped_df, trips, routes, stops, stop_times, nb_consecutive)
 
+excluded_berths = ['E1', 'E2', 'A1', 'B1', 'C1']
+
 # Prepare details list for video verification
 timemarks = []
 for i, vehicle in results_details_df.iterrows():
-    detected_details = vehicle['detected_details'].reset_index()
+    detected_details = vehicle['detected_details']
+    detected_details = detected_details[~detected_details['assigned_berth'].isin(excluded_berths)].reset_index()
+    print(detected_details)
     if detected_details.empty:
         first_seen_date = entire_hour_stopped_df.loc[entire_hour_stopped_df['vehicle.id'] == vehicle['vehicle']]['timestamp'].iloc[0]
         timemarks.append({"vehicle": vehicle['vehicle'], "timestart": first_seen_date, "detected_berth": '', "computed_berths_for_vehicle": vehicle['computed'], "route": vehicle['routes'], "timestop": '', "status": 'no_berth'})
