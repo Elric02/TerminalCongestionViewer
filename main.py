@@ -12,7 +12,7 @@ from datetime import datetime
 def single_start(filename):
     
     MessageType = gtfs_realtime_pb2.FeedMessage()
-    single_start_df = read_protobuf.read_protobuf('../data/vehiclepositions/07/'+filename, MessageType)    # use file instead of bytes
+    single_start_df = read_protobuf.read_protobuf('../data/vehiclepositions/07/'+filename, MessageType)
     single_start_df = pd.DataFrame(single_start_df['entity'].tolist())
 
     routes_list = []
@@ -90,8 +90,8 @@ def entire_hour(time_ranges):
             temp_df['route_short_name'] = np.asarray(route_short_name_list)
             temp_df['route_type'] = np.asarray(route_type_list)
 
-            # Exclude non-bus data, but keep unknown-type data
-            temp_df = temp_df[((temp_df['route_type'] == 700) | (temp_df['route_id'] == -1))]
+            # Exclude non-bus data
+            temp_df = temp_df[((temp_df['vehicle.id'].str.contains('9031005920')) | (temp_df['vehicle.id'].str.contains('9031005917')) | (temp_df['vehicle.id'].str.contains('9031005918')))]
 
             total_df = pd.concat([total_df, temp_df], ignore_index=True)
         except FileNotFoundError:
@@ -129,7 +129,7 @@ def entire_hour_berths(entire_hour_df):
     assigned_berths = []
     print(entire_hour_stopped_df)
     for i, row in entire_hour_stopped_df.iterrows():
-        if i%500 == 0:
+        if i%1000 == 0:
             print("Value", i, "/", len(entire_hour_df))
         guessed_berth = None
         for _, berth in berths_df.iterrows():
@@ -215,34 +215,52 @@ time_ranges = [
     [[8, 36, 35], [8, 38, 50]]
 ]
 
-#entire_hour_df = entire_hour(time_ranges)
-#entire_hour_stopped_df = entire_hour_berths(entire_hour_df)
+entire_hour_df = entire_hour(time_ranges)
+entire_hour_stopped_df = entire_hour_berths(entire_hour_df)
 #single_start_df = pd.read_csv("single_start.csv")
-entire_hour_df = pd.read_csv("entire_hour.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
-entire_hour_stopped_df = pd.read_csv("entire_hour_berths.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
+#entire_hour_df = pd.read_csv("entire_hour.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
+#entire_hour_stopped_df = pd.read_csv("entire_hour_berths.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
 
 # Input here how many times a row a bus must be at speed=0 to be considered stopped. For example: 5
 nb_consecutive = 5
 results_df, results_details_df = entire_hour_results(entire_hour_stopped_df, trips, routes, stops, stop_times, nb_consecutive)
 
+# Input here the berths to skip (for example out-of-frame berths)
 excluded_berths = ['E1', 'E2', 'A1', 'B1', 'C1']
+# Input here the id and time of the bus stops to skip (for example out-of-frame buses)
+excluded_bus_stops = [
+    ['9031005920505739', '2022-03-22 07:37:23'],
+    ['9031005920505756', '2022-03-22 07:37:27'],
+    ['9031005920505755', '2022-03-22 07:41:23'],
+    ['9031005918308724', '2022-03-22 07:42:13'],
+    ['9031005920505749', '2022-03-22 07:50:50'],
+    ['9031005920505742', '2022-03-22 07:52:11'],
+    ['9031005920505759', '2022-03-22 08:11:14'],
+    ['9031005920505752', '2022-03-22 08:11:14'],
+    ['9031005920505733', '2022-03-22 08:23:48']
+]
 
 # Prepare details list for video verification
 timemarks = []
 for i, vehicle in results_details_df.iterrows():
     detected_details = vehicle['detected_details']
     detected_details = detected_details[~detected_details['assigned_berth'].isin(excluded_berths)].reset_index()
-    print(detected_details)
+    first_seen_date = entire_hour_stopped_df.loc[entire_hour_stopped_df['vehicle.id'] == vehicle['vehicle']]['timestamp'].iloc[0]
+    is_to_exclude = False
+    for excluded_bus_stop in excluded_bus_stops:
+        if vehicle['vehicle'] == excluded_bus_stop[0] and datetime.fromtimestamp(int(str(first_seen_date))) == datetime.strptime(excluded_bus_stop[1], "%Y-%m-%d %H:%M:%S"):
+            is_to_exclude = True
+    if is_to_exclude:
+        continue
     if detected_details.empty:
-        first_seen_date = entire_hour_stopped_df.loc[entire_hour_stopped_df['vehicle.id'] == vehicle['vehicle']]['timestamp'].iloc[0]
         timemarks.append({"vehicle": vehicle['vehicle'], "timestart": first_seen_date, "detected_berth": '', "computed_berths_for_vehicle": vehicle['computed'], "route": vehicle['routes'], "timestop": '', "status": 'no_berth'})
     else:
         status = ("no_berth" if detected_details.iloc[0]['assigned_berth'] == "" else ("confirmed" if detected_details.iloc[0]['assigned_berth'] in set(vehicle['computed']) else "unclear"))
         timemarks.append({"vehicle": vehicle['vehicle'], "timestart": detected_details.iloc[0]['timestamp'], "detected_berth": detected_details.iloc[0]['assigned_berth'], "computed_berths_for_vehicle": vehicle['computed'], "route": vehicle['routes'], "status": status})
         current_time = detected_details.iloc[0]['timestamp']
         for j, timeframe in detected_details.iterrows():
-            # If the timestamp of this row is >20 seconds later than the previous row, the vehicle probably moved in the meantime
-            if timeframe['timestamp'] > current_time + 20:
+            # If the timestamp of this row is >8 seconds later than the previous row, the vehicle probably moved in the meantime
+            if timeframe['timestamp'] > current_time + 8:
                 timemarks[-1]['timestop'] = detected_details.iloc[j-1]['timestamp']
                 status = ("no_berth" if timeframe['assigned_berth'] == "" else ("confirmed" if timeframe['assigned_berth'] in set(vehicle['computed']) else "unclear"))
                 timemarks.append({"vehicle": vehicle['vehicle'], "timestart": timeframe['timestamp'], "detected_berth": timeframe['assigned_berth'], "computed_berths_for_vehicle": vehicle['computed'], "route": vehicle['routes'], "status": status})
