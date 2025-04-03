@@ -52,9 +52,9 @@ def single_start(filename):
 
 
 # ENTIRE HOUR: take data for a certain period
-def entire_hour(time_ranges):
+def entire_hour(time_ranges, trips):
 
-    def appendNewPBMinute(hour, minute, second, total_df, MessageType):
+    def appendNewPBMinute(hour, minute, second, total_df, MessageType, trips):
         try:
             filename = 'otraf-vehiclepositions-2022-03-22T'+hour+'-'+minute+'-'+second+'Z.pb'
             temp_df = read_protobuf.read_protobuf('../data/vehiclepositions/'+hour+'/'+filename, MessageType)
@@ -114,7 +114,7 @@ def entire_hour(time_ranges):
             hour = str(hour).zfill(2)
             minute = str(minute).zfill(2)
             second = str(second).zfill(2)
-            total_df = appendNewPBMinute(hour, minute, second, total_df, MessageType)
+            total_df = appendNewPBMinute(hour, minute, second, total_df, MessageType, trips)
             timestamp += 1
 
     print(total_df)
@@ -152,7 +152,7 @@ def entire_hour_results(entire_hour_stopped_df, trips, routes, stops, stop_times
         assigned_berths = only_selected_vehicle['assigned_berth']
         berth_shifts = assigned_berths != assigned_berths.shift()
         counts = berth_shifts.cumsum().value_counts()
-        # Get values of berths assigned at least 5x consecutively
+        # Get values of berths assigned at least nb_consecutive times consecutively
         result = only_selected_vehicle[berth_shifts.cumsum().isin(counts[counts >= nb_consecutive].index)]['assigned_berth'].unique()
         result_with_times = only_selected_vehicle[berth_shifts.cumsum().isin(counts[counts >= nb_consecutive].index)][['assigned_berth', 'timestamp']]
         # Get associated trips to this vehicle for this time period
@@ -215,7 +215,7 @@ time_ranges = [
     [[8, 36, 35], [8, 38, 50]]
 ]
 
-entire_hour_df = entire_hour(time_ranges)
+entire_hour_df = entire_hour(time_ranges, trips)
 entire_hour_stopped_df = entire_hour_berths(entire_hour_df)
 #single_start_df = pd.read_csv("single_start.csv")
 #entire_hour_df = pd.read_csv("entire_hour.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
