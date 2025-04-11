@@ -215,11 +215,11 @@ time_ranges = [
     [[8, 36, 35], [8, 38, 50]]
 ]
 
-entire_hour_df = entire_hour(time_ranges, trips)
-entire_hour_stopped_df = entire_hour_berths(entire_hour_df)
+#entire_hour_df = entire_hour(time_ranges, trips)
+#entire_hour_stopped_df = entire_hour_berths(entire_hour_df)
 #single_start_df = pd.read_csv("single_start.csv")
-#entire_hour_df = pd.read_csv("entire_hour.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
-#entire_hour_stopped_df = pd.read_csv("entire_hour_berths.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
+entire_hour_df = pd.read_csv("entire_hour_cleaned.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
+entire_hour_stopped_df = pd.read_csv("entire_hour_berths.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
 
 # Input here how many times a row a bus must be at speed=0 to be considered stopped. For example: 5
 nb_consecutive = 5
@@ -253,7 +253,7 @@ for i, vehicle in results_details_df.iterrows():
     if is_to_exclude:
         continue
     if detected_details.empty:
-        timemarks.append({"vehicle": vehicle['vehicle'], "timestart": first_seen_date, "detected_berth": '', "computed_berths_for_vehicle": vehicle['computed'], "route": vehicle['routes'], "timestop": '', "status": 'no_berth'})
+        print("No berth detected for vehicle", vehicle['vehicle'], " (routes) ", vehicle['routes'], " (computed berths) ", vehicle['computed'], " (first seen) ", datetime.fromtimestamp(int(str(entire_hour_stopped_df.loc[entire_hour_stopped_df['vehicle.id'] == vehicle['vehicle']]['timestamp'].iloc[0]))))
     else:
         status = ("no_berth" if detected_details.iloc[0]['assigned_berth'] == "" else ("confirmed" if detected_details.iloc[0]['assigned_berth'] in set(vehicle['computed']) else "unclear"))
         timemarks.append({"vehicle": vehicle['vehicle'], "timestart": detected_details.iloc[0]['timestamp'], "detected_berth": detected_details.iloc[0]['assigned_berth'], "computed_berths_for_vehicle": vehicle['computed'], "route": vehicle['routes'], "status": status})
