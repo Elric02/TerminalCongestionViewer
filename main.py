@@ -57,7 +57,7 @@ def entire_hour(time_ranges, trips):
     def appendNewPBMinute(hour, minute, second, total_df, MessageType, trips):
         try:
             filename = 'otraf-vehiclepositions-2022-03-22T'+hour+'-'+minute+'-'+second+'Z.pb'
-            temp_df = read_protobuf.read_protobuf('../data/vehiclepositions/'+hour+'/'+filename, MessageType)
+            temp_df = read_protobuf.read_protobuf('../data/feed/'+hour+'/'+filename, MessageType)
             temp_df = pd.DataFrame(temp_df['entity'].tolist())
             temp_df['source'] = filename
 
@@ -128,6 +128,7 @@ def entire_hour_berths(entire_hour_df):
     entire_hour_stopped_df = entire_hour_df[(entire_hour_df['speed'] == 0)].copy()
     assigned_berths = []
     print(entire_hour_stopped_df)
+    print("ASSIGNING BERTHS")
     for i, row in entire_hour_stopped_df.iterrows():
         if i%1000 == 0:
             print("Value", i, "/", len(entire_hour_df))
@@ -219,7 +220,9 @@ time_ranges = [
 #entire_hour_stopped_df = entire_hour_berths(entire_hour_df)
 #single_start_df = pd.read_csv("single_start.csv")
 entire_hour_df = pd.read_csv("entire_hour_cleaned.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
+entire_hour_df.drop(entire_hour_df.columns[0], axis=1, inplace=True)
 entire_hour_stopped_df = pd.read_csv("entire_hour_berths.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
+entire_hour_stopped_df.drop(entire_hour_stopped_df.columns[0], axis=1, inplace=True)
 
 # Input here how many times a row a bus must be at speed=0 to be considered stopped. For example: 5
 nb_consecutive = 5
