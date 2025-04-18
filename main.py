@@ -6,6 +6,7 @@ import gtfs_realtime_pb2
 import math
 from pyproj import Geod
 from datetime import datetime
+from shapely.geometry import Point, Polygon
 
 
 # SINGLE START: only take data from 07:16:00
@@ -128,7 +129,6 @@ def entire_hour_berths(entire_hour_df):
     entire_hour_stopped_df = entire_hour_df[(entire_hour_df['speed'] == 0)].copy()
     assigned_berths = []
     print(entire_hour_stopped_df)
-    print("ASSIGNING BERTHS")
     for i, row in entire_hour_stopped_df.iterrows():
         if i%1000 == 0:
             print("Value", i, "/", len(entire_hour_df))
@@ -148,6 +148,8 @@ def entire_hour_results(entire_hour_stopped_df, trips, routes, stops, stop_times
     results = []
     results_details = []
     vehicles = entire_hour_stopped_df['vehicle.id'].unique()
+    # Set stops where no berth was detected as berth "-1"
+    entire_hour_stopped_df['assigned_berth'] = entire_hour_stopped_df['assigned_berth'].fillna(-1)
     for vehicle in vehicles:
         only_selected_vehicle = entire_hour_stopped_df.loc[entire_hour_stopped_df['vehicle.id'] == vehicle]
         assigned_berths = only_selected_vehicle['assigned_berth']
@@ -155,7 +157,7 @@ def entire_hour_results(entire_hour_stopped_df, trips, routes, stops, stop_times
         counts = berth_shifts.cumsum().value_counts()
         # Get values of berths assigned at least nb_consecutive times consecutively
         result = only_selected_vehicle[berth_shifts.cumsum().isin(counts[counts >= nb_consecutive].index)]['assigned_berth'].unique()
-        result_with_times = only_selected_vehicle[berth_shifts.cumsum().isin(counts[counts >= nb_consecutive].index)][['assigned_berth', 'timestamp']]
+        result_with_times = only_selected_vehicle[berth_shifts.cumsum().isin(counts[counts >= nb_consecutive].index)][['assigned_berth', 'timestamp', 'longitude', 'latitude']]
         # Get associated trips to this vehicle for this time period
         vehicle_trips = only_selected_vehicle['trip_id'].unique()
         
@@ -242,6 +244,47 @@ excluded_bus_stops = [
     ['9031005920505752', '2022-03-22 08:11:14'],
     ['9031005920505733', '2022-03-22 08:23:48']
 ]
+# Input here the special zones. The zone has to be defined by at least 3 geographical points (its ends), and if a bus stopping inside should be considered as a regular stop or not.
+special_zones = [
+    {'name': "traffic_lights",
+     'regular': True,
+     'coordinates': [(15.62236, 58.41773), (15.62214, 58.41761), (15.62192, 58.41773), (15.62214, 58.41785)]}
+]
+
+# Function to check if a point is within some special zones of the terminal
+def check_special_zones(longitude, latitude):
+    is_inside = []
+    for special_zone in special_zones:
+        if len(special_zone['coordinates']) < 3:
+            print("Error while checking for special zones: a polygon must have at least 3 points!")
+            continue
+        polygon = Polygon(special_zone['coordinates'])
+        point_obj = Point((longitude, latitude))
+        if polygon.contains(point_obj):
+            is_inside.append(special_zone['regular'])
+    if len(is_inside) > 1:
+        print("More than one special zone detected! Check that they don't overlap. The first one will be kept.")
+    if len(is_inside) > 0:
+        return is_inside[0]
+    else:
+        return False
+
+# Function that will add remarks to the stop based on some criteria
+def check_special_stopping_conditions(longitude, latitude):
+    remarks = []
+    # If there's any vehicle stopped in front of the stopped vehicle, and what that vehicle is (thought of) stopped for
+    #TODO
+    # If the vehicle is stopped at a pedestrian crossing
+    is_at_crossing = False
+    crossings_df = pd.read_csv('pedestrian_crossings.csv')
+    for _, crossing in crossings_df.iterrows():
+        geod = Geod(ellps="WGS84") # Define the geodetic model
+        _, _, distance = geod.inv(longitude, latitude, crossing['longitude'], crossing['latitude']) # Compute geodesic distance
+        if distance <= 6: # True if distance is equal or less than 6 meters
+            is_at_crossing = True
+    if is_at_crossing:
+        remarks.append('at_crossing')
+    return remarks
 
 # Prepare details list for video verification
 timemarks = []
@@ -258,15 +301,22 @@ for i, vehicle in results_details_df.iterrows():
     if detected_details.empty:
         print("No berth detected for vehicle", vehicle['vehicle'], " (routes) ", vehicle['routes'], " (computed berths) ", vehicle['computed'], " (first seen) ", datetime.fromtimestamp(int(str(entire_hour_stopped_df.loc[entire_hour_stopped_df['vehicle.id'] == vehicle['vehicle']]['timestamp'].iloc[0]))))
     else:
-        status = ("no_berth" if detected_details.iloc[0]['assigned_berth'] == "" else ("confirmed" if detected_details.iloc[0]['assigned_berth'] in set(vehicle['computed']) else "unclear"))
-        timemarks.append({"vehicle": vehicle['vehicle'], "timestart": detected_details.iloc[0]['timestamp'], "detected_berth": detected_details.iloc[0]['assigned_berth'], "computed_berths_for_vehicle": vehicle['computed'], "route": vehicle['routes'], "status": status})
+        # Compute if the vehicle is stopped at a particular place
+        regular_stop = check_special_zones(detected_details.iloc[0]['longitude'], detected_details.iloc[0]['latitude'])
+        # Add some remarks on the vehicle stopping position if needed
+        remarks = check_special_stopping_conditions(detected_details.iloc[0]['longitude'], detected_details.iloc[0]['latitude'])
+        # Add its stops to a list
+        status = ("no_berth" if detected_details.iloc[0]['assigned_berth'] == "" else ("confirmed" if detected_details.iloc[0]['assigned_berth'] in set(vehicle['computed']) else ("regular_stop" if regular_stop else "unclear")))
+        timemarks.append({"vehicle": vehicle['vehicle'], "timestart": detected_details.iloc[0]['timestamp'], "detected_berth": detected_details.iloc[0]['assigned_berth'], "computed_berths_for_vehicle": vehicle['computed'], "route": vehicle['routes'], "status": status, "remarks": remarks})
         current_time = detected_details.iloc[0]['timestamp']
         for j, timeframe in detected_details.iterrows():
-            # If the timestamp of this row is >8 seconds later than the previous row, the vehicle probably moved in the meantime
+            # If the timestamp of this row is >8 seconds later than the previous row, the vehicle probably moved significantly and it should be considered as a different stop
             if timeframe['timestamp'] > current_time + 8:
                 timemarks[-1]['timestop'] = detected_details.iloc[j-1]['timestamp']
-                status = ("no_berth" if timeframe['assigned_berth'] == "" else ("confirmed" if timeframe['assigned_berth'] in set(vehicle['computed']) else "unclear"))
-                timemarks.append({"vehicle": vehicle['vehicle'], "timestart": timeframe['timestamp'], "detected_berth": timeframe['assigned_berth'], "computed_berths_for_vehicle": vehicle['computed'], "route": vehicle['routes'], "status": status})
+                regular_stop = check_special_zones(timeframe['longitude'], timeframe['latitude'])
+                remarks = check_special_stopping_conditions(timeframe['longitude'], timeframe['latitude'])
+                status = ("no_berth" if timeframe['assigned_berth'] == "" else ("confirmed" if timeframe['assigned_berth'] in set(vehicle['computed']) else ("regular_stop" if regular_stop else "unclear")))
+                timemarks.append({"vehicle": vehicle['vehicle'], "timestart": timeframe['timestamp'], "detected_berth": timeframe['assigned_berth'], "computed_berths_for_vehicle": vehicle['computed'], "route": vehicle['routes'], "status": status, "remarks": remarks})
             current_time = timeframe['timestamp']
         timemarks[-1]['timestop'] = detected_details.iloc[-1]['timestamp']
 # Sort list of stopped vehicles by time of stop
@@ -275,7 +325,7 @@ timemarks_df = pd.DataFrame(timemarks).sort_values('timestart').reset_index()
 timemarks_df['timestart'] = timemarks_df['timestart'].apply(lambda x: datetime.fromtimestamp(int(str(x))))
 timemarks_df['timestop'] = timemarks_df['timestop'].apply(lambda x: datetime.fromtimestamp(int(str(x))) if x != "" else "")
 # Reorder columns
-timemarks_df = timemarks_df.loc[:, ['index', 'vehicle', 'timestart', 'timestop', 'detected_berth', 'computed_berths_for_vehicle', 'route', 'status']]
+timemarks_df = timemarks_df.loc[:, ['index', 'vehicle', 'timestart', 'timestop', 'detected_berth', 'computed_berths_for_vehicle', 'route', 'status', 'remarks']]
 print(timemarks_df)
 timemarks_df.to_csv('for_video_verification.csv')
 
