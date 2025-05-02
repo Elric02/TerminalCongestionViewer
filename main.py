@@ -289,7 +289,6 @@ def check_special_stopping_conditions(longitude, latitude, bearing, timestart, e
                 is_inside.append({'vehicle': vehicle['vehicle.id']})
     if len(is_inside) > 0:
         remarks['vehicle_infront'] = is_inside
-    #TODO Take a span of 10 seconds (timestart of the stop +- 5 seconds), register all buses stopped in the conic zone in this time span
     # If the vehicle is stopped at a pedestrian crossing
     is_at_crossing = False
     for _, crossing in crossings_df.iterrows():
