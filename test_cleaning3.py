@@ -1,9 +1,4 @@
-#TODO:
-# Go through each vehicle id
-# Set coordinates of i to coordinates of i-1 if both i and i-1 have speed=0
-
 import pandas as pd
-import numpy as np
 
 
 df = pd.read_csv('entire_hour.csv', dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
