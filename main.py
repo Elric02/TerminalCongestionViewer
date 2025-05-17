@@ -212,18 +212,17 @@ stop_times = pd.read_csv('../data/static/stop_times.txt')
 #single_start_df = single_start('otraf-vehiclepositions-2022-03-22T07-16-00Z.pb')
 # Input here desired time ranges to take into account. For example, [[7, 16, 0], [7, 32, 35]] is "from 07:16:00 to 07:32:35" (both included)
 time_ranges = [
-    #[[7, 16, 0], [7, 32, 35]],
-    #[[7, 37, 25], [7, 53, 25]],
-    #[[8, 11, 15], [8, 30, 00]],
-    #[[8, 36, 35], [8, 38, 50]]
-    [[7, 0, 0], [8, 0, 0]]
+    [[7, 16, 0], [7, 32, 35]],
+    [[7, 37, 25], [7, 53, 25]],
+    [[8, 11, 15], [8, 30, 00]],
+    [[8, 36, 35], [8, 38, 50]]
+    #[[7, 0, 0], [9, 0, 0]]
 ]
 
-entire_hour_df = entire_hour(time_ranges, trips)
+#entire_hour_df = entire_hour(time_ranges, trips)
+entire_hour_df = pd.read_csv("entire_hour_cleaned.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
+entire_hour_df.drop(entire_hour_df.columns[0], axis=1, inplace=True)
 entire_hour_stopped_df = entire_hour_berths(entire_hour_df)
-single_start_df = pd.read_csv("single_start.csv")
-#entire_hour_df = pd.read_csv("entire_hour_cleaned.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
-#entire_hour_df.drop(entire_hour_df.columns[0], axis=1, inplace=True)
 #entire_hour_stopped_df = pd.read_csv("entire_hour_berths.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
 #entire_hour_stopped_df.drop(entire_hour_stopped_df.columns[0], axis=1, inplace=True)
 
@@ -303,6 +302,7 @@ def check_special_stopping_conditions(longitude, latitude, bearing, timestart, e
 timemarks = []
 for i, vehicle in results_details_df.iterrows():
     detected_details = vehicle['detected_details']
+    print(detected_details)
     # Exclude excluded berths
     detected_details = detected_details[~detected_details['assigned_berth'].isin(excluded_berths)].reset_index()
     first_seen_date = entire_hour_stopped_df.loc[entire_hour_stopped_df['vehicle.id'] == vehicle['vehicle']]['timestamp'].iloc[0]
@@ -311,6 +311,8 @@ for i, vehicle in results_details_df.iterrows():
         if vehicle['vehicle'] == excluded_bus_stop[0] and datetime.fromtimestamp(int(str(first_seen_date))) == datetime.strptime(excluded_bus_stop[1], "%Y-%m-%d %H:%M:%S"):
             is_to_exclude = True
     if is_to_exclude:
+        continue
+    if detected_details.empty:
         continue
     # Compute if the vehicle is stopped at a particular place
     regular_stop = check_special_zones(detected_details.iloc[0]['longitude'], detected_details.iloc[0]['latitude'])
