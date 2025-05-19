@@ -4,7 +4,7 @@ from geopy.distance import geodesic
 
 # Load your CSV file
 df = pd.read_csv('entire_hour.csv', dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
-df = df.loc[df['vehicle.id'] == 9031005920505507]
+#df = df.loc[df['vehicle.id'] == 9031005920505507]
 
 # Function to calculate the distance between two coordinates
 def haversine(lat1, lon1, lat2, lon2):

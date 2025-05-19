@@ -221,10 +221,10 @@ time_ranges = [
 
 #entire_hour_df = entire_hour(time_ranges, trips)
 entire_hour_df = pd.read_csv("entire_hour_cleaned.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
-entire_hour_df.drop(entire_hour_df.columns[0], axis=1, inplace=True)
-entire_hour_stopped_df = entire_hour_berths(entire_hour_df)
-#entire_hour_stopped_df = pd.read_csv("entire_hour_berths.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
-#entire_hour_stopped_df.drop(entire_hour_stopped_df.columns[0], axis=1, inplace=True)
+#entire_hour_df.drop(entire_hour_df.columns[0], axis=1, inplace=True)
+#entire_hour_stopped_df = entire_hour_berths(entire_hour_df)
+entire_hour_stopped_df = pd.read_csv("entire_hour_berths.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
+entire_hour_stopped_df.drop(entire_hour_stopped_df.columns[0], axis=1, inplace=True)
 
 # Input here how many times a row a bus must be at speed=0 to be considered stopped. For example: 5
 nb_consecutive = 5
@@ -273,6 +273,7 @@ def check_special_zones(longitude, latitude):
 def check_special_stopping_conditions(longitude, latitude, bearing, timestart, entire_hour_stopped_df, crossings_df):
     remarks = {}
     # If there's any vehicle stopped in front of the stopped vehicle, and what that vehicle is (thought of) stopped for
+    # Note: this feature seems to miss some occurrences
     geod = Geod(ellps="WGS84")
     # Tip of triangle, 2 meters in the given bearing direction
     tip_lon, tip_lat, _ = geod.fwd(longitude, latitude, bearing, 2)
@@ -302,7 +303,6 @@ def check_special_stopping_conditions(longitude, latitude, bearing, timestart, e
 timemarks = []
 for i, vehicle in results_details_df.iterrows():
     detected_details = vehicle['detected_details']
-    print(detected_details)
     # Exclude excluded berths
     detected_details = detected_details[~detected_details['assigned_berth'].isin(excluded_berths)].reset_index()
     first_seen_date = entire_hour_stopped_df.loc[entire_hour_stopped_df['vehicle.id'] == vehicle['vehicle']]['timestamp'].iloc[0]
@@ -349,6 +349,13 @@ for i, vehicle in results_details_df.iterrows():
             })
         current_time = timeframe['timestamp']
     timemarks[-1]['timestop'] = detected_details.iloc[-1]['timestamp']
+# Delete rows with a time stopped less than nb_consecutive, as they cannot be assigned to a berth anyway due to previous code
+# WARNING: this feature here treats nb_consecutive as seconds, while it is previously used as consecutive data points.
+# Thus, this will delete too much data if there is less than 1 data point every second. Deactivate if necessary.
+for i, timemark in enumerate(timemarks):
+    if timemark['timestop'] - timemark['timestart'] < nb_consecutive:
+        timemarks[i] = "_"
+timemarks = [x for x in timemarks if x != "_"]
 # Fill in remarks column
 crossings_df = pd.read_csv('pedestrian_crossings.csv')
 for timemark in timemarks:
