@@ -212,19 +212,19 @@ stop_times = pd.read_csv('../data/static/stop_times.txt')
 #single_start_df = single_start('otraf-vehiclepositions-2022-03-22T07-16-00Z.pb')
 # Input here desired time ranges to take into account. For example, [[7, 16, 0], [7, 32, 35]] is "from 07:16:00 to 07:32:35" (both included)
 time_ranges = [
-    [[7, 16, 0], [7, 32, 35]],
-    [[7, 37, 25], [7, 53, 25]],
-    [[8, 11, 15], [8, 30, 00]],
-    [[8, 36, 35], [8, 38, 50]]
-    #[[7, 0, 0], [9, 0, 0]]
+    #[[7, 16, 0], [7, 32, 35]],
+    #[[7, 37, 25], [7, 53, 25]],
+    #[[8, 11, 15], [8, 30, 00]],
+    #[[8, 36, 35], [8, 38, 50]]
+    [[7, 0, 0], [9, 0, 0]]
 ]
 
-#entire_hour_df = entire_hour(time_ranges, trips)
-entire_hour_df = pd.read_csv("entire_hour_cleaned.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
-#entire_hour_df.drop(entire_hour_df.columns[0], axis=1, inplace=True)
-#entire_hour_stopped_df = entire_hour_berths(entire_hour_df)
-entire_hour_stopped_df = pd.read_csv("entire_hour_berths.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
-entire_hour_stopped_df.drop(entire_hour_stopped_df.columns[0], axis=1, inplace=True)
+entire_hour_df = entire_hour(time_ranges, trips)
+#entire_hour_df = pd.read_csv("entire_hour_cleaned.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
+entire_hour_df.drop(entire_hour_df.columns[0], axis=1, inplace=True)
+entire_hour_stopped_df = entire_hour_berths(entire_hour_df)
+#entire_hour_stopped_df = pd.read_csv("entire_hour_berths.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
+#entire_hour_stopped_df.drop(entire_hour_stopped_df.columns[0], axis=1, inplace=True)
 
 # Input here how many times a row a bus must be at speed=0 to be considered stopped. For example: 5
 nb_consecutive = 5
@@ -232,6 +232,7 @@ results_df, results_details_df = entire_hour_results(entire_hour_stopped_df, tri
 
 # Input here the berths to skip (for example out-of-frame berths)
 excluded_berths = ['E1', 'E2', 'A1', 'B1', 'C1']
+excluded_berths = []
 # Input here the id and time of the bus stops to skip (for example out-of-frame buses)
 excluded_bus_stops = [
     ['9031005920505739', '2022-03-22 07:37:23'],
@@ -244,6 +245,7 @@ excluded_bus_stops = [
     ['9031005920505752', '2022-03-22 08:11:14'],
     ['9031005920505733', '2022-03-22 08:23:48']
 ]
+excluded_bus_stops = []
 # Input here the special zones. The zone has to be defined by at least 3 geographical points (its ends), and if a bus stopping inside should be considered as a regular stop or not.
 special_zones = [
     {'name': "traffic_lights",
