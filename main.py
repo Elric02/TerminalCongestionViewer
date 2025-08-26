@@ -1,4 +1,3 @@
-#import pykoda
 import pandas as pd
 import numpy as np
 import read_protobuf
@@ -7,6 +6,46 @@ import math
 from pyproj import Geod
 from datetime import datetime
 from shapely.geometry import Point, Polygon
+
+
+# PARAMETERS
+
+# Input here how many times a row a bus must be at speed=0 to be considered stopped. For example: 5
+nb_consecutive = 5
+
+# Input here the berths to skip (for example out-of-frame berths)
+excluded_berths = ['E1', 'E2', 'A1', 'B1', 'C1']
+excluded_berths = []
+
+# Input here desired time ranges to take into account. For example, [[7, 16, 0], [7, 32, 35]] is "from 07:16:00 to 07:32:35" (both included)
+time_ranges = [
+    #[[7, 16, 0], [7, 32, 35]],
+    #[[7, 37, 25], [7, 53, 25]],
+    #[[8, 11, 15], [8, 30, 00]],
+    #[[8, 36, 35], [8, 38, 50]]
+    [[7, 0, 0], [7, 30, 0]]
+]
+
+# Input here the id and time of the bus stops to skip (for example out-of-frame buses)
+excluded_bus_stops = [
+    ['9031005920505739', '2022-03-22 07:37:23'],
+    ['9031005920505756', '2022-03-22 07:37:27'],
+    ['9031005920505755', '2022-03-22 07:41:23'],
+    ['9031005918308724', '2022-03-22 07:42:13'],
+    ['9031005920505749', '2022-03-22 07:50:50'],
+    ['9031005920505742', '2022-03-22 07:52:11'],
+    ['9031005920505759', '2022-03-22 08:11:14'],
+    ['9031005920505752', '2022-03-22 08:11:14'],
+    ['9031005920505733', '2022-03-22 08:23:48']
+]
+excluded_bus_stops = []
+
+# Input here the special zones. The zone has to be defined by at least 3 geographical points (its ends), and if a bus stopping inside should be considered as a regular stop or not.
+special_zones = [
+    {'name': "traffic_lights",
+     'regular': True,
+     'coordinates': [(15.62236, 58.41773), (15.62214, 58.41761), (15.62192, 58.41773), (15.62214, 58.41785)]}
+]
 
 
 # SINGLE START: only take data from 07:16:00
@@ -201,58 +240,6 @@ def entire_hour_results(entire_hour_stopped_df, trips, routes, stops, stop_times
     return results_df, results_details_df
 
 
-# For now this is done manually 
-#static_data = pykoda.datautils.load_static_data('otraf', '2022_03_22', remove_unused_stations=True)
-
-trips = pd.read_csv('../data/static/trips.txt')
-routes = pd.read_csv('../data/static/routes.txt')
-stops = pd.read_csv('../data/static/stops.txt')
-stop_times = pd.read_csv('../data/static/stop_times.txt')
-
-#single_start_df = single_start('otraf-vehiclepositions-2022-03-22T07-16-00Z.pb')
-# Input here desired time ranges to take into account. For example, [[7, 16, 0], [7, 32, 35]] is "from 07:16:00 to 07:32:35" (both included)
-time_ranges = [
-    #[[7, 16, 0], [7, 32, 35]],
-    #[[7, 37, 25], [7, 53, 25]],
-    #[[8, 11, 15], [8, 30, 00]],
-    #[[8, 36, 35], [8, 38, 50]]
-    [[7, 0, 0], [9, 0, 0]]
-]
-
-entire_hour_df = entire_hour(time_ranges, trips)
-#entire_hour_df = pd.read_csv("entire_hour_cleaned.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
-entire_hour_df.drop(entire_hour_df.columns[0], axis=1, inplace=True)
-entire_hour_stopped_df = entire_hour_berths(entire_hour_df)
-#entire_hour_stopped_df = pd.read_csv("entire_hour_berths.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
-#entire_hour_stopped_df.drop(entire_hour_stopped_df.columns[0], axis=1, inplace=True)
-
-# Input here how many times a row a bus must be at speed=0 to be considered stopped. For example: 5
-nb_consecutive = 5
-results_df, results_details_df = entire_hour_results(entire_hour_stopped_df, trips, routes, stops, stop_times, nb_consecutive)
-
-# Input here the berths to skip (for example out-of-frame berths)
-excluded_berths = ['E1', 'E2', 'A1', 'B1', 'C1']
-excluded_berths = []
-# Input here the id and time of the bus stops to skip (for example out-of-frame buses)
-excluded_bus_stops = [
-    ['9031005920505739', '2022-03-22 07:37:23'],
-    ['9031005920505756', '2022-03-22 07:37:27'],
-    ['9031005920505755', '2022-03-22 07:41:23'],
-    ['9031005918308724', '2022-03-22 07:42:13'],
-    ['9031005920505749', '2022-03-22 07:50:50'],
-    ['9031005920505742', '2022-03-22 07:52:11'],
-    ['9031005920505759', '2022-03-22 08:11:14'],
-    ['9031005920505752', '2022-03-22 08:11:14'],
-    ['9031005920505733', '2022-03-22 08:23:48']
-]
-excluded_bus_stops = []
-# Input here the special zones. The zone has to be defined by at least 3 geographical points (its ends), and if a bus stopping inside should be considered as a regular stop or not.
-special_zones = [
-    {'name': "traffic_lights",
-     'regular': True,
-     'coordinates': [(15.62236, 58.41773), (15.62214, 58.41761), (15.62192, 58.41773), (15.62214, 58.41785)]}
-]
-
 # Function to check if a point is within some special zones of the terminal
 def check_special_zones(longitude, latitude):
     is_inside = []
@@ -301,88 +288,97 @@ def check_special_stopping_conditions(longitude, latitude, bearing, timestart, e
             remarks['at_crossing'] = crossing['name']
     return remarks
 
-# Prepare details list for video verification
-timemarks = []
-for i, vehicle in results_details_df.iterrows():
-    detected_details = vehicle['detected_details']
-    # Exclude excluded berths
-    detected_details = detected_details[~detected_details['assigned_berth'].isin(excluded_berths)].reset_index()
-    first_seen_date = entire_hour_stopped_df.loc[entire_hour_stopped_df['vehicle.id'] == vehicle['vehicle']]['timestamp'].iloc[0]
-    is_to_exclude = False
-    for excluded_bus_stop in excluded_bus_stops:
-        if vehicle['vehicle'] == excluded_bus_stop[0] and datetime.fromtimestamp(int(str(first_seen_date))) == datetime.strptime(excluded_bus_stop[1], "%Y-%m-%d %H:%M:%S"):
-            is_to_exclude = True
-    if is_to_exclude:
-        continue
-    if detected_details.empty:
-        continue
-    # Compute if the vehicle is stopped at a particular place
-    regular_stop = check_special_zones(detected_details.iloc[0]['longitude'], detected_details.iloc[0]['latitude'])
-    # Add its stops to a list
-    status = ("no_berth" if detected_details.iloc[0]['assigned_berth'] == "" else ("confirmed" if detected_details.iloc[0]['assigned_berth'] in set(vehicle['computed']) else ("regular_stop" if regular_stop else "unclear")))
-    timemarks.append({
-        "vehicle": vehicle['vehicle'],
-        "timestart": detected_details.iloc[0]['timestamp'],
-        "detected_berth": detected_details.iloc[0]['assigned_berth'],
-        "computed_berths_for_vehicle": vehicle['computed'],
-        "route": vehicle['routes'],
-        "status": status,
-        "longitude": detected_details.iloc[0]['longitude'],
-        "latitude": detected_details.iloc[0]['latitude'],
-        "bearing": detected_details.iloc[0]['bearing']
-    })
-    current_time = detected_details.iloc[0]['timestamp']
-    for j, timeframe in detected_details.iterrows():
-        # If the timestamp of this row is >8 seconds later than the previous row, the vehicle probably moved significantly and it should be considered as a different stop
-        if timeframe['timestamp'] > current_time + 8:
-            timemarks[-1]['timestop'] = detected_details.iloc[j-1]['timestamp']
-            regular_stop = check_special_zones(timeframe['longitude'], timeframe['latitude'])
-            status = ("no_berth" if timeframe['assigned_berth'] == "" else ("confirmed" if timeframe['assigned_berth'] in set(vehicle['computed']) else ("regular_stop" if regular_stop else "unclear")))
-            timemarks.append({
-                "vehicle": vehicle['vehicle'],
-                "timestart": timeframe['timestamp'],
-                "detected_berth": timeframe['assigned_berth'],
-                "computed_berths_for_vehicle": vehicle['computed'],
-                "route": vehicle['routes'],
-                "status": status,
-                "longitude": timeframe['longitude'],
-                "latitude": timeframe['latitude'],
-                "bearing": timeframe['bearing']
-            })
-        current_time = timeframe['timestamp']
-    timemarks[-1]['timestop'] = detected_details.iloc[-1]['timestamp']
-# Delete rows with a time stopped less than nb_consecutive, as they cannot be assigned to a berth anyway due to previous code
-# WARNING: this feature here treats nb_consecutive as seconds, while it is previously used as consecutive data points.
-# Thus, this will delete too much data if there is less than 1 data point every second. Deactivate if necessary.
-for i, timemark in enumerate(timemarks):
-    if timemark['timestop'] - timemark['timestart'] < nb_consecutive:
-        timemarks[i] = "_"
-timemarks = [x for x in timemarks if x != "_"]
-# Fill in remarks column
-crossings_df = pd.read_csv('pedestrian_crossings.csv')
-for timemark in timemarks:
-    timemark['remarks'] = check_special_stopping_conditions(timemark['longitude'], timemark['latitude'], timemark['bearing'], timemark['timestart'], entire_hour_stopped_df, crossings_df)
 
-# Sort list of stopped vehicles by time of stop
-timemarks_df = pd.DataFrame(timemarks).sort_values('timestart').reset_index()
-# Convert dates/hours from timestamps to datetimes
-timemarks_df['timestart'] = timemarks_df['timestart'].apply(lambda x: datetime.fromtimestamp(int(str(x))))
-timemarks_df['timestop'] = timemarks_df['timestop'].apply(lambda x: datetime.fromtimestamp(int(str(x))) if x != "" else "")
-# Reorder columns (and don't export latitude/longitude)
-timemarks_df = timemarks_df.loc[:, ['index', 'vehicle', 'timestart', 'timestop', 'detected_berth', 'computed_berths_for_vehicle', 'route', 'status', 'remarks']]
-print(timemarks_df)
-timemarks_df.to_csv('for_video_verification.csv')
+# MAIN FUNCTION, OUTPUTS VIDEO VERIFICATION CSV
+if __name__ == "__main__":
+    # For now this is done manually 
+    #static_data = pykoda.datautils.load_static_data('otraf', '2022_03_22', remove_unused_stations=True)
+
+    trips = pd.read_csv('../data/static/trips.txt')
+    routes = pd.read_csv('../data/static/routes.txt')
+    stops = pd.read_csv('../data/static/stops.txt')
+    stop_times = pd.read_csv('../data/static/stop_times.txt')
+
+    # Either call the functions, or read the already-generated csv's to gain time
+    entire_hour_df = entire_hour(time_ranges, trips)
+    #entire_hour_df = pd.read_csv("entire_hour_cleaned.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
+    entire_hour_df.drop(entire_hour_df.columns[0], axis=1, inplace=True)
+    entire_hour_stopped_df = entire_hour_berths(entire_hour_df)
+    #entire_hour_stopped_df = pd.read_csv("entire_hour_berths.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
+    #entire_hour_stopped_df.drop(entire_hour_stopped_df.columns[0], axis=1, inplace=True)
+
+    results_df, results_details_df = entire_hour_results(entire_hour_stopped_df, trips, routes, stops, stop_times, nb_consecutive)
 
 
+    # Prepare details list for video verification
 
+    timemarks = []
+    for i, vehicle in results_details_df.iterrows():
+        detected_details = vehicle['detected_details']
+        # Exclude excluded berths
+        detected_details = detected_details[~detected_details['assigned_berth'].isin(excluded_berths)].reset_index()
+        first_seen_date = entire_hour_stopped_df.loc[entire_hour_stopped_df['vehicle.id'] == vehicle['vehicle']]['timestamp'].iloc[0]
+        is_to_exclude = False
+        for excluded_bus_stop in excluded_bus_stops:
+            if vehicle['vehicle'] == excluded_bus_stop[0] and datetime.fromtimestamp(int(str(first_seen_date))) == datetime.strptime(excluded_bus_stop[1], "%Y-%m-%d %H:%M:%S"):
+                is_to_exclude = True
+        if is_to_exclude:
+            continue
+        if detected_details.empty:
+            continue
+        # Compute if the vehicle is stopped at a particular place
+        regular_stop = check_special_zones(detected_details.iloc[0]['longitude'], detected_details.iloc[0]['latitude'])
+        # Add its stops to a list
+        status = ("no_berth" if detected_details.iloc[0]['assigned_berth'] == "" else ("confirmed" if detected_details.iloc[0]['assigned_berth'] in set(vehicle['computed']) else ("regular_stop" if regular_stop else "unclear")))
+        timemarks.append({
+            "vehicle": vehicle['vehicle'],
+            "timestart": detected_details.iloc[0]['timestamp'],
+            "detected_berth": detected_details.iloc[0]['assigned_berth'],
+            "computed_berths_for_vehicle": vehicle['computed'],
+            "route": vehicle['routes'],
+            "status": status,
+            "longitude": detected_details.iloc[0]['longitude'],
+            "latitude": detected_details.iloc[0]['latitude'],
+            "bearing": detected_details.iloc[0]['bearing']
+        })
+        current_time = detected_details.iloc[0]['timestamp']
+        for j, timeframe in detected_details.iterrows():
+            # If the timestamp of this row is >8 seconds later than the previous row, the vehicle probably moved significantly and it should be considered as a different stop
+            if timeframe['timestamp'] > current_time + 8:
+                timemarks[-1]['timestop'] = detected_details.iloc[j-1]['timestamp']
+                regular_stop = check_special_zones(timeframe['longitude'], timeframe['latitude'])
+                status = ("no_berth" if timeframe['assigned_berth'] == "" else ("confirmed" if timeframe['assigned_berth'] in set(vehicle['computed']) else ("regular_stop" if regular_stop else "unclear")))
+                timemarks.append({
+                    "vehicle": vehicle['vehicle'],
+                    "timestart": timeframe['timestamp'],
+                    "detected_berth": timeframe['assigned_berth'],
+                    "computed_berths_for_vehicle": vehicle['computed'],
+                    "route": vehicle['routes'],
+                    "status": status,
+                    "longitude": timeframe['longitude'],
+                    "latitude": timeframe['latitude'],
+                    "bearing": timeframe['bearing']
+                })
+            current_time = timeframe['timestamp']
+        timemarks[-1]['timestop'] = detected_details.iloc[-1]['timestamp']
+    # Delete rows with a time stopped less than nb_consecutive, as they cannot be assigned to a berth anyway due to previous code
+    # WARNING: this feature here treats nb_consecutive as seconds, while it is previously used as consecutive data points.
+    # Thus, this will delete too much data if there is less than 1 data point every second. Deactivate if necessary.
+    for i, timemark in enumerate(timemarks):
+        if timemark['timestop'] - timemark['timestart'] < nb_consecutive:
+            timemarks[i] = "_"
+    timemarks = [x for x in timemarks if x != "_"]
+    # Fill in remarks column
+    crossings_df = pd.read_csv('pedestrian_crossings.csv')
+    for timemark in timemarks:
+        timemark['remarks'] = check_special_stopping_conditions(timemark['longitude'], timemark['latitude'], timemark['bearing'], timemark['timestart'], entire_hour_stopped_df, crossings_df)
 
-
-
-# Tests with the TripUpdates feed
-#MessageType = gtfs_realtime_pb2.FeedMessage()
-#test_df = read_protobuf.read_protobuf('../data/tripupdates/07/otraf-tripupdates-2022-03-22T07-00-05Z.pb', MessageType)
-#test_df = pd.DataFrame(test_df['entity'].tolist())
-#print("-----------------------")
-#print(test_df)
-#print(pd.DataFrame(test_df['stop_time_update'].tolist()))
-#pd.DataFrame(test_df['stop_time_update'].tolist()).to_csv("tripupdates_test.csv")
+    # Sort list of stopped vehicles by time of stop
+    timemarks_df = pd.DataFrame(timemarks).sort_values('timestart').reset_index()
+    # Convert dates/hours from timestamps to datetimes
+    timemarks_df['timestart'] = timemarks_df['timestart'].apply(lambda x: datetime.fromtimestamp(int(str(x))))
+    timemarks_df['timestop'] = timemarks_df['timestop'].apply(lambda x: datetime.fromtimestamp(int(str(x))) if x != "" else "")
+    # Reorder columns (and don't export latitude/longitude)
+    timemarks_df = timemarks_df.loc[:, ['index', 'vehicle', 'timestart', 'timestop', 'detected_berth', 'computed_berths_for_vehicle', 'route', 'status', 'remarks']]
+    print(timemarks_df)
+    timemarks_df.to_csv('for_video_verification.csv')
