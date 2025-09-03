@@ -87,17 +87,17 @@ def single_start(filename):
     single_start_df['route_type'] = np.asarray(route_type_list)
 
     print(single_start_df)
-    single_start_df.to_csv("single_start.csv")
+    single_start_df.to_csv("output/single_start.csv")
     return single_start_df
 
 
 # ENTIRE HOUR: take data for a certain period
-def entire_hour(time_ranges, trips):
+def entire_hour(provider, date, realtime_path, time_ranges, trips, routes):
 
     def appendNewPBMinute(hour, minute, second, total_df, MessageType, trips):
         try:
-            filename = 'otraf-vehiclepositions-2022-03-22T'+hour+'-'+minute+'-'+second+'Z.pb'
-            temp_df = read_protobuf.read_protobuf('../data/feed/'+hour+'/'+filename, MessageType)
+            filename = provider+'-vehiclepositions-'+date+'T'+hour+'-'+minute+'-'+second+'Z.pb'
+            temp_df = read_protobuf.read_protobuf(realtime_path+'/'+hour+'/'+filename, MessageType)
             temp_df = pd.DataFrame(temp_df['entity'].tolist())
             temp_df['source'] = filename
 
@@ -158,7 +158,7 @@ def entire_hour(time_ranges, trips):
             timestamp += 1
 
     print(total_df)
-    total_df.to_csv("entire_hour.csv")
+    total_df.to_csv("output/entire_hour.csv")
     return total_df
 
 # Adding detected berths for all vehicles
@@ -179,7 +179,7 @@ def entire_hour_berths(entire_hour_df):
                 guessed_berth = berth['berth']
         assigned_berths.append(guessed_berth)
     entire_hour_stopped_df['assigned_berth'] = assigned_berths
-    entire_hour_stopped_df.to_csv("entire_hour_berths.csv")
+    entire_hour_stopped_df.to_csv("output/entire_hour_berths.csv")
     return entire_hour_stopped_df
 
 # Using static data to compare computed and detected berths
@@ -234,7 +234,7 @@ def entire_hour_results(entire_hour_stopped_df, trips, routes, stops, stop_times
     results_df = pd.DataFrame(results)
     results_details_df = pd.DataFrame(results_details)
     print(results_details_df)
-    results_details_df.to_csv('entire_hour_results.csv')
+    results_details_df.to_csv('output/entire_hour_results.csv')
     comparison = results_df.apply(lambda row: "same" if set(row['computed']) == set(row['detected']) else ("partial" if set(row['computed']) & set(row['detected']) else "different"), axis=1)
     print(comparison.value_counts())
     return results_df, results_details_df
@@ -300,11 +300,11 @@ if __name__ == "__main__":
     stop_times = pd.read_csv('../data/static/stop_times.txt')
 
     # Either call the functions, or read the already-generated csv's to gain time
-    entire_hour_df = entire_hour(time_ranges, trips)
-    #entire_hour_df = pd.read_csv("entire_hour_cleaned.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
+    entire_hour_df = entire_hour("otraf", "2022-03-22", "../data/feed", time_ranges, trips, routes)
+    #entire_hour_df = pd.read_csv("output/entire_hour_cleaned.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
     entire_hour_df.drop(entire_hour_df.columns[0], axis=1, inplace=True)
     entire_hour_stopped_df = entire_hour_berths(entire_hour_df)
-    #entire_hour_stopped_df = pd.read_csv("entire_hour_berths.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
+    #entire_hour_stopped_df = pd.read_csv("output/entire_hour_berths.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
     #entire_hour_stopped_df.drop(entire_hour_stopped_df.columns[0], axis=1, inplace=True)
 
     results_df, results_details_df = entire_hour_results(entire_hour_stopped_df, trips, routes, stops, stop_times, nb_consecutive)
@@ -381,4 +381,4 @@ if __name__ == "__main__":
     # Reorder columns (and don't export latitude/longitude)
     timemarks_df = timemarks_df.loc[:, ['index', 'vehicle', 'timestart', 'timestop', 'detected_berth', 'computed_berths_for_vehicle', 'route', 'status', 'remarks']]
     print(timemarks_df)
-    timemarks_df.to_csv('for_video_verification.csv')
+    timemarks_df.to_csv('output/for_video_verification.csv')
