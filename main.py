@@ -92,7 +92,7 @@ def single_start(filename):
 
 
 # ENTIRE HOUR: take data for a certain period
-def entire_hour(provider, date, realtime_path, time_ranges, trips, routes):
+def entire_hour(provider, date, realtime_path, time_ranges, trips, routes, exclusion, modulo=1, routeid_dtype="float"):
 
     def appendNewPBMinute(hour, minute, second, total_df, MessageType, trips):
         try:
@@ -102,7 +102,8 @@ def entire_hour(provider, date, realtime_path, time_ranges, trips, routes):
             temp_df['source'] = filename
 
             # Exclude data outside the bus terminal
-            temp_df = temp_df[((temp_df['latitude'] > 58.416) & (temp_df['latitude'] < 58.419) & (temp_df['longitude'] > 15.621) & (temp_df['longitude'] < 15.626))]
+            if exclusion:
+                temp_df = temp_df[((temp_df['latitude'] > 58.416) & (temp_df['latitude'] < 58.419) & (temp_df['longitude'] > 15.621) & (temp_df['longitude'] < 15.626))]
             routes_list = []
             directions_list = []
             route_short_name_list = []
@@ -113,8 +114,12 @@ def entire_hour(provider, date, realtime_path, time_ranges, trips, routes):
                     if not trip.empty:
                         routes_list.append(trip['route_id'].iloc[0])
                         directions_list.append(trip['direction_id'].iloc[0])
-                        route_short_name_list.append(routes.loc[routes['route_id'] == float(trip['route_id'].iloc[0])]['route_short_name'].iloc[0])
-                        route_type_list.append(routes.loc[routes['route_id'] == float(trip['route_id'].iloc[0])]['route_type'].iloc[0])
+                        if routeid_dtype == "float":
+                            route_short_name_list.append(routes.loc[routes['route_id'] == float(trip['route_id'].iloc[0])]['route_short_name'].iloc[0])
+                            route_type_list.append(routes.loc[routes['route_id'] == float(trip['route_id'].iloc[0])]['route_type'].iloc[0])
+                        elif routeid_dtype == "str":
+                            route_short_name_list.append(routes.loc[routes['route_id'] == str(trip['route_id'].iloc[0])]['route_short_name'].iloc[0])
+                            route_type_list.append(routes.loc[routes['route_id'] == str(trip['route_id'].iloc[0])]['route_type'].iloc[0])
                     else:
                         routes_list.append(-1)
                         directions_list.append(-1)
@@ -131,7 +136,8 @@ def entire_hour(provider, date, realtime_path, time_ranges, trips, routes):
             temp_df['route_type'] = np.asarray(route_type_list)
 
             # Exclude non-bus data
-            temp_df = temp_df[((temp_df['vehicle.id'].str.contains('9031005920')) | (temp_df['vehicle.id'].str.contains('9031005917')) | (temp_df['vehicle.id'].str.contains('9031005918')))]
+            if exclusion:
+                temp_df = temp_df[((temp_df['vehicle.id'].str.contains('9031005920')) | (temp_df['vehicle.id'].str.contains('9031005917')) | (temp_df['vehicle.id'].str.contains('9031005918')))]
 
             total_df = pd.concat([total_df, temp_df], ignore_index=True)
         except FileNotFoundError:
@@ -145,16 +151,17 @@ def entire_hour(provider, date, realtime_path, time_ranges, trips, routes):
         timestamp = 3600*time_range[0][0] + 60*time_range[0][1] + time_range[0][2]
         max_timestamp = 3600*time_range[1][0] + 60*time_range[1][1] + time_range[1][2]
         while timestamp <= max_timestamp:
-            hour = math.floor(timestamp/3600)
-            minute = math.floor((timestamp-hour*3600)/60)
-            second = timestamp-hour*3600-minute*60
-            if second == time_range[0][2]:
-                print("Now starting hour", hour, "minute", minute)
-            # Add an extra 0 where necessary (for example 08:22)
-            hour = str(hour).zfill(2)
-            minute = str(minute).zfill(2)
-            second = str(second).zfill(2)
-            total_df = appendNewPBMinute(hour, minute, second, total_df, MessageType, trips)
+            if timestamp % modulo == 0:
+                hour = math.floor(timestamp/3600)
+                minute = math.floor((timestamp-hour*3600)/60)
+                second = timestamp-hour*3600-minute*60
+                if second == time_range[0][2]:
+                    print("Now starting hour", hour, "minute", minute)
+                # Add an extra 0 where necessary (for example 08:22)
+                hour = str(hour).zfill(2)
+                minute = str(minute).zfill(2)
+                second = str(second).zfill(2)
+                total_df = appendNewPBMinute(hour, minute, second, total_df, MessageType, trips)
             timestamp += 1
 
     print(total_df)
@@ -300,7 +307,7 @@ if __name__ == "__main__":
     stop_times = pd.read_csv('../data/static/stop_times.txt')
 
     # Either call the functions, or read the already-generated csv's to gain time
-    entire_hour_df = entire_hour("otraf", "2022-03-22", "../data/feed", time_ranges, trips, routes)
+    entire_hour_df = entire_hour("otraf", "2022-03-22", "../data/feed", time_ranges, trips, routes, True)
     #entire_hour_df = pd.read_csv("output/entire_hour_cleaned.csv", dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
     entire_hour_df.drop(entire_hour_df.columns[0], axis=1, inplace=True)
     entire_hour_stopped_df = entire_hour_berths(entire_hour_df)
