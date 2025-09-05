@@ -6,16 +6,16 @@ import main
 import os
 
 time_ranges = [
-    [[7, 0, 0], [8, 59, 59]]
+    [[7, 0, 0], [7, 59, 59]]
 ]
 
-provider = "xt"
-date = "2025-08-26"
-modulo = 15
-routeid_dtype = "float"
+provider = "sl"
+date = "2024-05-02"
+modulo = 1
+routeid_dtype = "str"
 
-trips = pd.read_csv('../data/static/'+provider+'/trips.txt')
-routes = pd.read_csv('../data/static/'+provider+'/routes.txt')
+trips = pd.read_csv('../data/static/'+provider+"/"+date+'/trips.txt')
+routes = pd.read_csv('../data/static/'+provider+"/"+date+'/routes.txt')
 
 realtime_path = "../data/realtime/"+provider+"/VehiclePositions/"+date[0:4]+"/"+date[5:7]+"/"+date[8:]
 total_df = main.entire_hour(provider, date, realtime_path, time_ranges, trips, routes, False, modulo, routeid_dtype)

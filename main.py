@@ -165,7 +165,7 @@ def entire_hour(provider, date, realtime_path, time_ranges, trips, routes, exclu
             timestamp += 1
 
     print(total_df)
-    total_df.to_csv("output/entire_hour.csv")
+    total_df.to_csv("output/entire_hour_"+provider+"_"+date+".csv")
     return total_df
 
 # Adding detected berths for all vehicles
