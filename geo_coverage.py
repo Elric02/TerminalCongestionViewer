@@ -9,10 +9,10 @@ time_ranges = [
     [[7, 0, 0], [7, 59, 59]]
 ]
 
-provider = "sl"
-date = "2024-05-02"
-modulo = 1
-routeid_dtype = "str"
+provider = "ul"
+date = "2025-05-02"
+modulo = 10
+routeid_dtype = "float"
 
 trips = pd.read_csv('../data/static/'+provider+"/"+date+'/trips.txt')
 routes = pd.read_csv('../data/static/'+provider+"/"+date+'/routes.txt')
