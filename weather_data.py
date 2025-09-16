@@ -1,13 +1,12 @@
-#TODO: get coordinates of the station in the csv file, maybe also already filter based on time (to avoid having a 1GB csv)
-
 import requests
 import csv
 from datetime import datetime, timedelta, timezone
 import polars as pl
 
-# Configuration: date to fetch, output CSV path
+# Date to fetch, output CSV path
 TARGET_DATE = "2025-05-02" # YYYY-MM-DD
-OUTPUT_CSV = "smhi_precipitation_{}.csv".format(TARGET_DATE)
+OUTPUT_CSV = "output/smhi_precipitation_{}.csv".format(TARGET_DATE)
+
 
 # Stations list URL
 STATIONS_URL = "https://opendata-download-metobs.smhi.se/api/version/latest/parameter/7.json"
@@ -34,7 +33,7 @@ def get_all_stations():
 
 # Fetch the data for each station
 def fetch_weather_for_date(station_meta):
-    df = pl.DataFrame(schema={"Date": pl.Utf8, "Time": pl.Utf8, "Value": pl.Utf8, "Quality": pl.Utf8, "StationID": pl.Utf8})
+    df = pl.DataFrame(schema={"Date": pl.Utf8, "Time": pl.Utf8, "Value": pl.Float32, "Quality": pl.Utf8, "StationID": pl.Utf8, "StationLatitude": pl.Float64, "StationLongitude": pl.Float64})
     i = 0
     for station_id in station_meta.keys():
         #if i < 50: i+=1; continue
@@ -50,11 +49,15 @@ def fetch_weather_for_date(station_meta):
                 if e[0] == "Datum":
                     header_row_index = j
                     break
-        # Drop the extra information that should not be part of the CSV
-        cr_list = [x[:4] for x in cr_list[header_row_index+1:]]
-        temp_df = pl.DataFrame(cr_list, schema=["Date", "Time", "Value", "Quality"])
+        # Drop the extra information that should not be part of the CSV, as well as empty rows + filter based on desired date
+        cr_list = [x[:4] for x in cr_list[header_row_index+1:] if x[2] != "" and x[0] == TARGET_DATE]
+        print(cr_list)
+        temp_df = pl.DataFrame(cr_list, schema={"Date": pl.Utf8, "Time": pl.Utf8, "Value": pl.Float32, "Quality": pl.Utf8}, orient="row")
         temp_df = temp_df.with_columns(pl.lit(station_id).alias("StationID"))
+        temp_df = temp_df.with_columns(pl.lit(station_meta[station_id]["latitude"]).alias("StationLatitude"))
+        temp_df = temp_df.with_columns(pl.lit(station_meta[station_id]["longitude"]).alias("StationLongitude"))
         df = pl.concat([df, temp_df])
+        print(df)
         print(str(i)+"/"+str(len(station_meta))+" stations done"); i+=1
     return df
 
