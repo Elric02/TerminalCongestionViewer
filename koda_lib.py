@@ -7,7 +7,7 @@ import gtfs_realtime_pb2
 import math
 
 
-def import_timeframe(provider, date, time_ranges, vehiclepositions_path, staticdata_path, modulo=1, export_type="none"): 
+def import_timeframe(provider, date, time_ranges, import_method="online", vehiclepositions_path=None, staticdata_path=None, modulo=1, export_type="none"): 
     """Import VehiclePositions data from KoDa for the specified timeframe in a specific day
 
     :param provider: The desired provider code (e.g. otraf, sl, ul...), full list here:
@@ -18,9 +18,11 @@ def import_timeframe(provider, date, time_ranges, vehiclepositions_path, staticd
     :param time_ranges: List of 2-element-lists of 3-elements-list: start and beginning of desired time frames,
         where sub-sub-lists take the shape [h, min, sec] (e.g. `[[[7, 0, 0], [7, 59, 59]]]` -> only 1 timeframe, from 07:00:00 to 07:59:59 both included)
     :type time_ranges: list[list[list[int]]]
-    :param vehiclepositions_path: The path to the content of the VehiclePositions folder (e.g. "../data/realtime/VehiclePositions")
+    :param import_method: Where to get the data (available: online, local), where "online" is requesting directly from KoDa and "local" is from local files
+    :type import_method: str
+    :param vehiclepositions_path: (Only if import_method=="local") The path to the content of the VehiclePositions folder (e.g. "../data/realtime/VehiclePositions")
     :type vehiclepositions_path: str
-    :param staticdata_path: The path to the folder containing static GTFS data, i.e. routes.txt, trips.txt... (e.g. "../data/static")
+    :param staticdata_path: (Only if import_method=="local") The path to the folder containing static GTFS data, i.e. routes.txt, trips.txt... (e.g. "../data/static")
     :type staticdata_path: str
     :param modulo: Consider only 1 every x seconds, where x is this variable. Useful when using large timeframes
     :type modulo: int
