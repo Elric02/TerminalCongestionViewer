@@ -1,7 +1,5 @@
 #TODO: import automatically data
-#TODO: add "export type" parameter
 #TODO: switch to Polars
-#TODO: proper function documentation
 
 import pandas as pd
 import numpy as np
@@ -10,19 +8,26 @@ import gtfs_realtime_pb2
 import math
 
 
-# Import VehiclePositions data from KoDa for the specified timeframe in a specific day
-def import_timeframe(
-    provider, #string: the desired provider code (e.g. otraf, sl, ul...), full list here:
-                # https://www.trafiklab.se/api/gtfs-datasets/gtfs-regional#operators-covered-by-this-dataset
-    date, #string: the desired date in format "YYYY-MM-DD"
-    time_ranges, #list of 2-element-lists of 3-elements-list: start and beginning of desired time frames,
-                                            # where sub-sub-lists take the shape [h, min, sec]
-                                            # (e.g. [[[7, 0, 0], [7, 59, 59]]] -> only 1 timeframe, from 07:00:00 to 07:59:59 included)
-    vehiclepositions_path, #string: the path to the content of the VehiclePositions folder (e.g. "../data/realtime/VehiclePositions")
-    staticdata_path, #string: the path to the folder containing static GTFS data, i.e. routes.txt, trips.txt... (e.g. "../data/static")
-    modulo=1, #int: consider only 1 every x seconds, where x is this variable. Useful when using large timeframes
-    export_type="none" #string: which file type to export in (available: none, csv). The function always returns a DataFrame anyway
-): 
+def import_timeframe(provider, date, time_ranges, vehiclepositions_path, staticdata_path, modulo=1, export_type="none"): 
+    """Import VehiclePositions data from KoDa for the specified timeframe in a specific day
+
+    :param provider: The desired provider code (e.g. otraf, sl, ul...), full list here:
+        https://www.trafiklab.se/api/gtfs-datasets/gtfs-regional#operators-covered-by-this-dataset
+    :type provider: str
+    :param date: The desired date in format "YYYY-MM-DD"
+    :type date: str
+    :param time_ranges: List of 2-element-lists of 3-elements-list: start and beginning of desired time frames,
+        where sub-sub-lists take the shape [h, min, sec] (e.g. `[[[7, 0, 0], [7, 59, 59]]]` -> only 1 timeframe, from 07:00:00 to 07:59:59 both included)
+    :type time_ranges: list[list[list[int]]]
+    :param vehiclepositions_path: The path to the content of the VehiclePositions folder (e.g. "../data/realtime/VehiclePositions")
+    :type vehiclepositions_path: str
+    :param staticdata_path: The path to the folder containing static GTFS data, i.e. routes.txt, trips.txt... (e.g. "../data/static")
+    :type staticdata_path: str
+    :param modulo: Consider only 1 every x seconds, where x is this variable. Useful when using large timeframes
+    :type modulo: int
+    :param export_type: Which file type to export in (available: none, csv). The function always returns a DataFrame anyway
+    :type export_type: str
+    """
 
     def appendNewPBMinute(hour, minute, second, total_df, MessageType, trips):
         try:
