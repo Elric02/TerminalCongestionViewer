@@ -1,7 +1,7 @@
-#TODO: remove parameter routeid_dtype
 #TODO: import automatically data
 #TODO: add "export type" parameter
 #TODO: switch to Polars
+#TODO: proper function documentation
 
 import pandas as pd
 import numpy as np
@@ -15,13 +15,13 @@ def import_timeframe(
     provider, #string: the desired provider code (e.g. otraf, sl, ul...), full list here:
                 # https://www.trafiklab.se/api/gtfs-datasets/gtfs-regional#operators-covered-by-this-dataset
     date, #string: the desired date in format "YYYY-MM-DD"
-    time_ranges=[[[7, 0, 0], [7, 59, 59]]], #list of 2-element-lists of 3-elements-list: start and beginning of desired time frames,
+    time_ranges, #list of 2-element-lists of 3-elements-list: start and beginning of desired time frames,
                                             # where sub-sub-lists take the shape [h, min, sec]
                                             # (e.g. [[[7, 0, 0], [7, 59, 59]]] -> only 1 timeframe, from 07:00:00 to 07:59:59 included)
-    vehiclepositions_path="", #string: the path to the content of the VehiclePositions folder (e.g. "../data/realtime/VehiclePositions")
-    staticdata_path="", #string: the path to the folder containing static GTFS data, i.e. routes.txt, trips.txt... (e.g. "../data/static")
-    modulo=1, #int: consider only 1 every x seconds, where x is this variable. Useful when using large timeframes.
-    routeid_dtype="float" #this parameter will be removed soon
+    vehiclepositions_path, #string: the path to the content of the VehiclePositions folder (e.g. "../data/realtime/VehiclePositions")
+    staticdata_path, #string: the path to the folder containing static GTFS data, i.e. routes.txt, trips.txt... (e.g. "../data/static")
+    modulo=1, #int: consider only 1 every x seconds, where x is this variable. Useful when using large timeframes
+    export_type="none" #string: which file type to export in (available: none, csv). The function always returns a DataFrame anyway
 ): 
 
     def appendNewPBMinute(hour, minute, second, total_df, MessageType, trips):
@@ -86,6 +86,6 @@ def import_timeframe(
                 total_df = appendNewPBMinute(hour, minute, second, total_df, MessageType, trips)
             timestamp += 1
 
-    print(total_df)
-    total_df.to_csv("output/entire_hour_"+provider+"_"+date+"_test.csv")
+    if export_type == "csv":
+        total_df.to_csv("output/entire_hour_"+provider+"_"+date+"_test.csv")
     return total_df
