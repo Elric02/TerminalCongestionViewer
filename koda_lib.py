@@ -1,7 +1,7 @@
-#TODO: test
 #TODO: remove parameter routeid_dtype
 #TODO: import automatically data
 #TODO: add "export type" parameter
+#TODO: switch to Polars
 
 import pandas as pd
 import numpy as np
@@ -41,12 +41,8 @@ def import_timeframe(
                     if not trip.empty:
                         routes_list.append(trip['route_id'].iloc[0])
                         directions_list.append(trip['direction_id'].iloc[0])
-                        if routeid_dtype == "float":
-                            route_short_name_list.append(routes.loc[routes['route_id'] == float(trip['route_id'].iloc[0])]['route_short_name'].iloc[0])
-                            route_type_list.append(routes.loc[routes['route_id'] == float(trip['route_id'].iloc[0])]['route_type'].iloc[0])
-                        elif routeid_dtype == "str":
-                            route_short_name_list.append(routes.loc[routes['route_id'] == str(trip['route_id'].iloc[0])]['route_short_name'].iloc[0])
-                            route_type_list.append(routes.loc[routes['route_id'] == str(trip['route_id'].iloc[0])]['route_type'].iloc[0])
+                        route_short_name_list.append(routes.loc[routes['route_id'] == str(trip['route_id'].iloc[0])]['route_short_name'].iloc[0])
+                        route_type_list.append(routes.loc[routes['route_id'] == str(trip['route_id'].iloc[0])]['route_type'].iloc[0])
                     else:
                         routes_list.append(-1)
                         directions_list.append(-1)
@@ -68,7 +64,7 @@ def import_timeframe(
         return total_df
     
     trips = pd.read_csv(staticdata_path+'/trips.txt')
-    routes = pd.read_csv(staticdata_path+'/routes.txt')
+    routes = pd.read_csv(staticdata_path+'/routes.txt', dtype={'route_id': str})
 
     total_df = pd.DataFrame()
     MessageType = gtfs_realtime_pb2.FeedMessage()
