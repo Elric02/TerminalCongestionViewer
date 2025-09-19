@@ -1,5 +1,3 @@
-#TODO: import automatically data
-
 import polars as pl
 import numpy as np
 import read_protobuf
@@ -9,6 +7,7 @@ import os
 import time
 import shutil
 import zipfile
+import py7zr
 
 
 def import_timeframe(provider, date, time_ranges, import_method="online", vehiclepositions_path=None, staticdata_path=None, modulo=1, export_type="none"): 
@@ -36,6 +35,8 @@ def import_timeframe(provider, date, time_ranges, import_method="online", vehicl
 
     def appendNewPBSecond(hour, minute, second, total_df, MessageType, trips, import_method):
         try:
+            if import_method == "online":
+                vehiclepositions_path = os.path.join('tempdata', provider, 'VehiclePositions')
             filename = provider+'-vehiclepositions-'+date+'T'+hour+'-'+minute+'-'+second+'Z.pb'
             temp_df = read_protobuf.read_protobuf(vehiclepositions_path+'/'+date[0:4]+'/'+date[5:7]+'/'+date[8:]+'/'+hour+'/'+filename, MessageType)
             temp_df = pl.DataFrame(temp_df['entity'].tolist())
@@ -90,6 +91,7 @@ def import_timeframe(provider, date, time_ranges, import_method="online", vehicl
             print("Requesting data from", url)
             res_s = os.popen('curl -s -w %{http_code} -I "' + url + '"')
             res = res_s.read()
+            print(res)
             if '200' in res: # Data ready to download
                 print("Data is ready to download")
                 return
@@ -107,16 +109,48 @@ def import_timeframe(provider, date, time_ranges, import_method="online", vehicl
         os.system("curl -s -o" + path + ' "' + url + '"')
     
     if import_method == "online":
+        # Find the API key
+        key_text_file = "koda_api_key.txt"
         try:
-            api_key =  open("koda_api_key.txt", "r").read()
+            api_key = open(key_text_file, "r").read()
         except FileNotFoundError:
-            print('KoDa API key not found. Please create a file named "koda_api_key.txt" in the same directory as this code, and paste your API key inside.')
+            print('KoDa API key not found. Please create a file named'+key_text_file+'in the same directory as this code, and paste your API key inside.')
             time.sleep(3)
             exit()
         static_url = f'https://api.koda.trafiklab.se/KoDa/api/v2/gtfs-static/{provider}?date={date}&key={api_key}'
-        realtime_url = f'https://api.koda.trafiklab.se/KoDa/api/v2/gtfs-rt/{provider}/VehiclePositions?date={date}&key={api_key}'
+        # First request to prepare the file. This will take time if the file is not ready yet
         prepare_file_on_server(static_url)
-        download_data(f"tempdata/GTFS-{provider.upper()}-{date}.zip", static_url)
+        # Then download the file
+        import_path = f"tempdata"
+        zip_name = f"GTFS-{provider.upper()}-{date}.zip"
+        download_data(os.path.join(import_path, zip_name), static_url)
+        # Unzip the static data
+        unzip_path = os.path.join(import_path, "static_unzipped")
+        os.makedirs(unzip_path, exist_ok=True)
+        with zipfile.ZipFile(os.path.join(import_path, zip_name), 'r') as zip_ref:
+            zip_ref.extractall(unzip_path)
+        # Import the now-extracted TXT files as DataFrames
+        trips = pl.read_csv(os.path.join(unzip_path, "trips.txt"))
+        routes = pl.read_csv(os.path.join(unzip_path, "routes.txt"), schema_overrides={'route_id': pl.Utf8})
+        # Determine which hours will be needed to download from KoDa (real-time data)
+        hours_to_download = []
+        for time_range in time_ranges:
+            hours = list(range(time_range[0][0], time_range[1][0] + 1))
+            for hour in hours:
+                if hour not in hours_to_download:
+                    hours_to_download.append(hour)
+        print("The following hours will be downloaded for realtime data:", hours_to_download)
+        for hour_to_download in hours_to_download:
+            realtime_url = f'https://api.koda.trafiklab.se/KoDa/api/v2/gtfs-rt/{provider}/VehiclePositions?date={date}&key={api_key}&hour={hour_to_download}'
+            # First request to prepare the file. This will take time if the file is not ready yet
+            prepare_file_on_server(realtime_url)
+            # Then download the file
+            import_path = f"tempdata"
+            zip_name = f"{provider}-VehiclePositions-{date}-{str(hour).zfill(2)}.zip"
+            download_data(os.path.join(import_path, zip_name), realtime_url)
+            # Unzip the static data
+            with py7zr.SevenZipFile(os.path.join(import_path, zip_name), mode='r') as archive:
+                archive.extractall(path=import_path)
     elif import_method == "local":
         trips = pl.read_csv(staticdata_path+'/trips.txt')
         routes = pl.read_csv(staticdata_path+'/routes.txt', schema_overrides={'route_id': pl.Utf8})
@@ -138,67 +172,26 @@ def import_timeframe(provider, date, time_ranges, import_method="online", vehicl
                 hour = str(hour).zfill(2)
                 minute = str(minute).zfill(2)
                 second = str(second).zfill(2)
-                total_df = appendNewPBSecond(hour, minute, second, total_df, MessageType, trips)
+                total_df = appendNewPBSecond(hour, minute, second, total_df, MessageType, trips, import_method)
             timestamp += 1
 
+    # Export to file if asked
     if export_type == "csv":
-        total_df.write_csv("output/entire_hour_"+provider+"_"+date+"_test.csv")
+        total_df.write_csv("output/entire_hour_"+provider+"_"+date+".csv")
+
+    # Remove all data from tempdata folder
+    print("Operation completed. All data will now be removed from the tempdata folder.")
+    time.sleep(2)
+    for item in os.listdir(import_path):
+        item_path = os.path.join(import_path, item)
+        # Skip .gitignore
+        if item == ".gitignore": continue
+        # Remove directories
+        if os.path.isdir(item_path):
+            shutil.rmtree(item_path)
+        # Remove files
+        else:
+            os.remove(item_path)
+
     return total_df
 
-def prepare_file_on_server(url):
-    time_waited = 0
-    while True:
-        print("Requesting data from", url)
-        res_s = os.popen('curl -s -w %{http_code} -I "' + url + '"')
-        res = res_s.read()
-        if '200' in res: # Data ready to download
-            print("Data is ready to download")
-            return
-        elif '202' in res: # Data will be prepared
-            print("Data is being prepared on the server")
-            print("Waiting. Time waited so far:", str(time_waited), "minutes")
-            time.sleep(60)
-            time_waited += 1
-            continue
-        else:
-            raise Exception("Unknown response from server: " + res)
-
-def download_data(path, url):
-    print("downloading file with command: curl -s -o " + path + ' "' + url + '"')
-    os.system("curl -s -o" + path + ' "' + url + '"')
-
-provider = "sl" #REMOVE
-date="2025-05-02" #REMOVE
-key_text_file = "koda_api_key.txt"
-try:
-    api_key = open(key_text_file, "r").read()
-except FileNotFoundError:
-    print('KoDa API key not found. Please create a file named'+key_text_file+'in the same directory as this code, and paste your API key inside.')
-    time.sleep(3)
-    exit()
-static_url = f'https://api.koda.trafiklab.se/KoDa/api/v2/gtfs-static/{provider}?date={date}&key={api_key}'
-realtime_url = f'https://api.koda.trafiklab.se/KoDa/api/v2/gtfs-rt/{provider}/VehiclePositions?date={date}&key={api_key}'
-# First request to prepare the file. This will take time if the file is not ready yet
-prepare_file_on_server(static_url)
-# Then download the file
-import_path = f"tempdata"
-zip_name = f"GTFS-{provider.upper()}-{date}.zip"
-download_data(os.path.join(import_path, zip_name), static_url)
-# Unzip the static data
-unzip_path = os.path.join(import_path, "static_unzipped")
-os.makedirs(unzip_path, exist_ok=True)
-with zipfile.ZipFile(os.path.join(import_path, zip_name), 'r') as zip_ref:
-    zip_ref.extractall(unzip_path)
-
-# Remove all data from tempdata folder
-print("Operation completed. Data will now be removed from the tempdata folder.")
-for item in os.listdir(import_path):
-    item_path = os.path.join(import_path, item)
-    # Skip .gitignore
-    if item == ".gitignore": continue
-    # Remove directories
-    if os.path.isdir(item_path):
-        shutil.rmtree(item_path)
-    # Remove files
-    else:
-        os.remove(item_path)
