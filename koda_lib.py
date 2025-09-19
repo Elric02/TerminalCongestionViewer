@@ -3,8 +3,12 @@
 import polars as pl
 import numpy as np
 import read_protobuf
-import gtfs_realtime_pb2
+import gtfs_realtime_pb2 # Local library, no need to install this
 import math
+import os
+import time
+import shutil
+import zipfile
 
 
 def import_timeframe(provider, date, time_ranges, import_method="online", vehiclepositions_path=None, staticdata_path=None, modulo=1, export_type="none"): 
@@ -30,7 +34,7 @@ def import_timeframe(provider, date, time_ranges, import_method="online", vehicl
     :type export_type: str
     """
 
-    def appendNewPBSecond(hour, minute, second, total_df, MessageType, trips):
+    def appendNewPBSecond(hour, minute, second, total_df, MessageType, trips, import_method):
         try:
             filename = provider+'-vehiclepositions-'+date+'T'+hour+'-'+minute+'-'+second+'Z.pb'
             temp_df = read_protobuf.read_protobuf(vehiclepositions_path+'/'+date[0:4]+'/'+date[5:7]+'/'+date[8:]+'/'+hour+'/'+filename, MessageType)
@@ -80,8 +84,42 @@ def import_timeframe(provider, date, time_ranges, import_method="online", vehicl
             print("File not found:", filename)
         return total_df
     
-    trips = pl.read_csv(staticdata_path+'/trips.txt')
-    routes = pl.read_csv(staticdata_path+'/routes.txt', schema_overrides={'route_id': pl.Utf8})
+    def prepare_file_on_server(url):
+        time_waited = 0
+        while True:
+            print("Requesting data from", url)
+            res_s = os.popen('curl -s -w %{http_code} -I "' + url + '"')
+            res = res_s.read()
+            if '200' in res: # Data ready to download
+                print("Data is ready to download")
+                return
+            elif '202' in res: # Data will be prepared
+                print("Data is being prepared on the server")
+                print("Waiting. Time waited so far:", str(time_waited), "minutes")
+                time.sleep(60)
+                time_waited += 1
+                continue
+            else:
+                raise Exception("Unknown response from server: " + res)
+
+    def download_data(path, url):
+        print("downloading file with command: curl -s -o " + path + ' "' + url + '"')
+        os.system("curl -s -o" + path + ' "' + url + '"')
+    
+    if import_method == "online":
+        try:
+            api_key =  open("koda_api_key.txt", "r").read()
+        except FileNotFoundError:
+            print('KoDa API key not found. Please create a file named "koda_api_key.txt" in the same directory as this code, and paste your API key inside.')
+            time.sleep(3)
+            exit()
+        static_url = f'https://api.koda.trafiklab.se/KoDa/api/v2/gtfs-static/{provider}?date={date}&key={api_key}'
+        realtime_url = f'https://api.koda.trafiklab.se/KoDa/api/v2/gtfs-rt/{provider}/VehiclePositions?date={date}&key={api_key}'
+        prepare_file_on_server(static_url)
+        download_data(f"tempdata/GTFS-{provider.upper()}-{date}.zip", static_url)
+    elif import_method == "local":
+        trips = pl.read_csv(staticdata_path+'/trips.txt')
+        routes = pl.read_csv(staticdata_path+'/routes.txt', schema_overrides={'route_id': pl.Utf8})
 
     total_df = pl.DataFrame()
     MessageType = gtfs_realtime_pb2.FeedMessage()
@@ -106,3 +144,61 @@ def import_timeframe(provider, date, time_ranges, import_method="online", vehicl
     if export_type == "csv":
         total_df.write_csv("output/entire_hour_"+provider+"_"+date+"_test.csv")
     return total_df
+
+def prepare_file_on_server(url):
+    time_waited = 0
+    while True:
+        print("Requesting data from", url)
+        res_s = os.popen('curl -s -w %{http_code} -I "' + url + '"')
+        res = res_s.read()
+        if '200' in res: # Data ready to download
+            print("Data is ready to download")
+            return
+        elif '202' in res: # Data will be prepared
+            print("Data is being prepared on the server")
+            print("Waiting. Time waited so far:", str(time_waited), "minutes")
+            time.sleep(60)
+            time_waited += 1
+            continue
+        else:
+            raise Exception("Unknown response from server: " + res)
+
+def download_data(path, url):
+    print("downloading file with command: curl -s -o " + path + ' "' + url + '"')
+    os.system("curl -s -o" + path + ' "' + url + '"')
+
+provider = "sl" #REMOVE
+date="2025-05-02" #REMOVE
+key_text_file = "koda_api_key.txt"
+try:
+    api_key = open(key_text_file, "r").read()
+except FileNotFoundError:
+    print('KoDa API key not found. Please create a file named'+key_text_file+'in the same directory as this code, and paste your API key inside.')
+    time.sleep(3)
+    exit()
+static_url = f'https://api.koda.trafiklab.se/KoDa/api/v2/gtfs-static/{provider}?date={date}&key={api_key}'
+realtime_url = f'https://api.koda.trafiklab.se/KoDa/api/v2/gtfs-rt/{provider}/VehiclePositions?date={date}&key={api_key}'
+# First request to prepare the file. This will take time if the file is not ready yet
+prepare_file_on_server(static_url)
+# Then download the file
+import_path = f"tempdata"
+zip_name = f"GTFS-{provider.upper()}-{date}.zip"
+download_data(os.path.join(import_path, zip_name), static_url)
+# Unzip the static data
+unzip_path = os.path.join(import_path, "static_unzipped")
+os.makedirs(unzip_path, exist_ok=True)
+with zipfile.ZipFile(os.path.join(import_path, zip_name), 'r') as zip_ref:
+    zip_ref.extractall(unzip_path)
+
+# Remove all data from tempdata folder
+print("Operation completed. Data will now be removed from the tempdata folder.")
+for item in os.listdir(import_path):
+    item_path = os.path.join(import_path, item)
+    # Skip .gitignore
+    if item == ".gitignore": continue
+    # Remove directories
+    if os.path.isdir(item_path):
+        shutil.rmtree(item_path)
+    # Remove files
+    else:
+        os.remove(item_path)
