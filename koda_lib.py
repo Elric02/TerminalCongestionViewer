@@ -8,9 +8,11 @@ import time
 import shutil
 import zipfile
 import py7zr
+from shapely.geometry import Point, Polygon
 
 
-def import_timeframe(provider, date, time_ranges, import_method="online", vehiclepositions_path=None, staticdata_path=None, modulo=1, export_type="none"): 
+
+def import_timeframe(provider, date, time_ranges, import_method="online", vehiclepositions_path=None, staticdata_path=None, modulo=1, terminal_coordinates=None, export_type="none"): 
     """Import VehiclePositions data from KoDa for the specified timeframe in a specific day
 
     :param provider: The desired provider code (e.g. otraf, sl, ul...), full list here:
@@ -29,11 +31,14 @@ def import_timeframe(provider, date, time_ranges, import_method="online", vehicl
     :type staticdata_path: str
     :param modulo: Consider only 1 every x seconds, where x is this variable. Useful when using large timeframes
     :type modulo: int
+    :param terminal_coordinates: List of tuples, each tuple containing 2 floats: longitude and latitude. Each tuple represents a point delimiting the zone of the terminal to use. If None, then the data is not restricted to any zone
+    :type terminal_coordinates: list[tuple(float)] or None
     :param export_type: Which file type to export in (available: none, csv). The function always returns a DataFrame anyway
     :type export_type: str
     """
 
-    def appendNewPBSecond(hour, minute, second, total_df, MessageType, trips, import_method):
+
+    def appendNewPBSecond(hour, minute, second, total_df, MessageType, trips):
         try:
             if import_method == "online":
                 vehiclepositions_path = os.path.join('tempdata', provider, 'VehiclePositions')
@@ -41,6 +46,14 @@ def import_timeframe(provider, date, time_ranges, import_method="online", vehicl
             temp_df = read_protobuf.read_protobuf(vehiclepositions_path+'/'+date[0:4]+'/'+date[5:7]+'/'+date[8:]+'/'+hour+'/'+filename, MessageType)
             temp_df = pl.DataFrame(temp_df['entity'].tolist())
             temp_df = temp_df.with_columns(pl.lit(filename).alias("source"))
+            # If coordinates of a terminal are provided, filter the data to only include data points from that zone
+            if terminal_coordinates is not None:
+                if len(terminal_coordinates) < 3:
+                    print("Error while checking for the zone of the terminal: a polygon must have at least 3 points!")
+                    exit
+                coords = temp_df.select(["longitude", "latitude"]).to_numpy()
+                boolean_mask = np.array([Polygon(terminal_coordinates).contains(Point(x, y)) for x, y in coords])
+                temp_df = temp_df.filter(boolean_mask)
 
             routes_list = []
             directions_list = []
@@ -172,12 +185,12 @@ def import_timeframe(provider, date, time_ranges, import_method="online", vehicl
                 hour = str(hour).zfill(2)
                 minute = str(minute).zfill(2)
                 second = str(second).zfill(2)
-                total_df = appendNewPBSecond(hour, minute, second, total_df, MessageType, trips, import_method)
+                total_df = appendNewPBSecond(hour, minute, second, total_df, MessageType, trips)
             timestamp += 1
 
     # Export to file if asked
     if export_type == "csv":
-        total_df.write_csv("output/entire_hour_"+provider+"_"+date+".csv")
+        total_df.write_csv("output/vehiclepositions_"+provider+"_"+date+".csv")
 
     # Remove all data from tempdata folder
     print("Operation completed. All data will now be removed from the tempdata folder.")
