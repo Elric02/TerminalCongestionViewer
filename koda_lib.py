@@ -12,7 +12,7 @@ from shapely.geometry import Point, Polygon
 
 
 
-def import_timeframe(provider, date, time_ranges, import_method="online", vehiclepositions_path=None, staticdata_path=None, modulo=1, terminal_coordinates=None, export_type="none"): 
+def import_timeframe(provider, date, time_ranges, import_method="online", vehiclepositions_path=None, staticdata_path=None, modulo=1, terminal_coordinates=None, export_type="none", export_name=None): 
     """Import VehiclePositions data from KoDa for the specified timeframe in a specific day
 
     :param provider: The desired provider code (e.g. otraf, sl, ul...), full list here:
@@ -35,6 +35,8 @@ def import_timeframe(provider, date, time_ranges, import_method="online", vehicl
     :type terminal_coordinates: list[tuple(float)] or None
     :param export_type: Which file type to export in (available: none, csv). The function always returns a DataFrame anyway
     :type export_type: str
+    :param export_name: Name of the exported file. If None, uses a default one defined in this function
+    :type export_name: str
     """
 
 
@@ -190,7 +192,11 @@ def import_timeframe(provider, date, time_ranges, import_method="online", vehicl
 
     # Export to file if asked
     if export_type == "csv":
-        total_df.write_csv("output/vehiclepositions_"+provider+"_"+date+".csv")
+        if export_name is not None:
+            file_name = export_name
+        else:
+            file_name = "vehiclepositions_"+provider+"_"+date+".csv"
+        total_df.write_csv("output/"+file_name)
 
     # Remove all data from tempdata folder
     print("Operation completed. All data will now be removed from the tempdata folder.")
