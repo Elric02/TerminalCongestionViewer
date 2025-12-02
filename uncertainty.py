@@ -14,7 +14,7 @@ df = df.filter(pl.col("trip_id") != "55700000076548069")
 
 # Select all trip IDs (1 per trajectory) and put them in a list
 trip_ids = df.select(pl.col('trip_id')).unique().to_series().to_list()
-print(trip_ids)
+print("Trip IDs considered:", trip_ids)
 # Format coordinates points to numpy arrays, 1 per traj, and put them in a list
 trip_coords_list = []
 for trip in trip_ids:
@@ -24,17 +24,14 @@ for trip in trip_ids:
 # Calculate distance measures for each pair of trajectory
 #a=np.array([(116.750,40.632),(116.760,40.642),(116.770,40.652)])
 #b=np.array([(116.751,40.632),(116.761,40.642),(116.771,40.652)])
-dist_list = []
-for i in range(len(trip_coords_list)):
-    for j in range(i+1, len(trip_coords_list)):
-        traj_pair = {}
-        traj_pair['traj1'] = trip_ids[i]
-        traj_pair['traj2'] = trip_ids[j]
-        traj_pair['sspd'] = tdist.sspd(trip_coords_list[i], trip_coords_list[j])
-        #traj_pair['edr'] = tdist.edr(trip_coords_list[i], trip_coords_list[j])
-        #traj_pair['dfd'] = tdist.dfd(trip_coords_list[i], trip_coords_list[j])
-        dist_list.append(traj_pair)
-print(dist_list)
-
+sspd = tdist.pdist(trip_coords_list, metric="sspd")
+print("-- SSPD --")
+print(sspd)
+edr = tdist.pdist(trip_coords_list, metric="edr", eps=0.0003)
+print("-- EDR --")
+print(edr)
+dfd = tdist.pdist(trip_coords_list, metric="frechet")
+print("-- DFD --")
+print(dfd)
 
 #TODO: implement SSPD, EDR, and DFD for each of the 6 (remaining) paths
