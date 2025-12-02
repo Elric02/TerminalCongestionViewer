@@ -33,5 +33,17 @@ print(edr)
 dfd = tdist.pdist(trip_coords_list, metric="frechet")
 print("-- DFD --")
 print(dfd)
+print([trip_ids[i] for i in range(len(trip_ids)) for _ in range(i+1, len(trip_ids))])
+print([trip_ids[j] for i in range(len(trip_ids)) for j in range(i+1, len(trip_ids))])
+output = pl.DataFrame(
+    {
+        "traj1": [trip_ids[i] for i in range(len(trip_ids)) for _ in range(i+1, len(trip_ids))],
+        "traj2": [trip_ids[j] for i in range(len(trip_ids)) for j in range(i+1, len(trip_ids))],
+        "sspd": sspd,
+        "edr": edr,
+        "dfd": dfd,
+    }
+)
+output.write_csv('output/251202_pairwise_distances.csv')
 
 #TODO: implement SSPD, EDR, and DFD for each of the 6 (remaining) paths
