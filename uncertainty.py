@@ -45,5 +45,3 @@ output = pl.DataFrame(
     }
 )
 output.write_csv('output/251202_pairwise_distances.csv')
-
-#TODO: implement SSPD, EDR, and DFD for each of the 6 (remaining) paths
