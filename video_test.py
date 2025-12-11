@@ -1,4 +1,11 @@
+# CHANGELOG (current version is latest)
 # v1
+# v2: changed model from yolov8m to yolo11m
+
+# TODO
+# Try out other models and options, find out which one is the best
+# Convert detections to coordinates
+
 
 import cv2
 import csv
@@ -10,9 +17,9 @@ OUTPUT_CSV = "output/detections.csv"
 OUTPUT_FRAMES = "output/frames"
 
 # Use a larger model for accuracy (n = nano, s = small, m = medium)
-MODEL_PATH = "yolov8m.pt"
+MODEL_PATH = "yolo11m.pt"
 
-# YOLOv8 COCO class index for "bus"
+# YOLO COCO class index for "bus"
 BUS_CLASS_ID = 5
 
 model = YOLO(MODEL_PATH)
