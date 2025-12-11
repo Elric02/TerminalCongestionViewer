@@ -1,3 +1,5 @@
+# v1
+
 import cv2
 import csv
 from ultralytics import YOLO
@@ -14,9 +16,6 @@ MODEL_PATH = "yolov8m.pt"
 BUS_CLASS_ID = 5
 
 model = YOLO(MODEL_PATH)
-
-# Enable ByteTrack tracking inside YOLOv8 (the default configuration works well for drone footage):
-# model.track(..., tracker="bytetrack.yaml")
 
 cap = cv2.VideoCapture(VIDEO_PATH)
 frame_idx = 0
