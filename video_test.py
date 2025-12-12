@@ -1,9 +1,10 @@
 # CHANGELOG (current version is latest)
 # v1
 # v2: changed model from yolov8m to yolo11m
+# v3: changed model from yolo11m to yolov11l
 
 # TODO
-# Try out other models and options, find out which one is the best
+# Try out other options, find out which one is the best
 # Convert detections to coordinates
 
 
@@ -17,7 +18,7 @@ OUTPUT_CSV = "output/detections.csv"
 OUTPUT_FRAMES = "output/frames"
 
 # Use a larger model for accuracy (n = nano, s = small, m = medium)
-MODEL_PATH = "yolo11m.pt"
+MODEL_PATH = "yolo11l.pt"
 
 # YOLO COCO class index for "bus"
 BUS_CLASS_ID = 5
@@ -51,6 +52,7 @@ while True:
     if results[0].boxes is not None:
         for det in results[0].boxes:
             cls = int(det.cls[0])
+            # Only write down something if the detected object is a bus
             if cls != BUS_CLASS_ID:
                 continue
             x1, y1, x2, y2 = det.xyxy[0].tolist()
