@@ -1,7 +1,5 @@
 import polars as pl
 import traj_dist.distance as tdist
-import numpy as np
-
 
 
 df = pl.read_csv("output/vehiclepositions_terminal_linköping_2025-09-16.csv", schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8})
