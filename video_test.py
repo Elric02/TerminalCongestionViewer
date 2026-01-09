@@ -5,10 +5,6 @@
 #
 # To refine the model: https://docs.ultralytics.com/modes/track/#tracker-arguments
 
-# TODO
-# Try out other options, find out which one is the best
-# Convert detections to coordinates
-
 
 import cv2
 import csv
