@@ -76,7 +76,7 @@ def fetch_weather_for_date(param, station_meta, obs_url_lambda):
             i += 1
     return df
 
-def plot_results(csv_path_lambda, parameters_url, meteo_params):
+def analyze_results(csv_path_lambda, parameters_url, meteo_params):
     resp = requests.get(parameters_url)
     resp.raise_for_status()
     param_descs = dict([(x['key'], x['title']) for x in resp.json().get("resource")])
@@ -110,8 +110,40 @@ def plot_results(csv_path_lambda, parameters_url, meteo_params):
         ])
         .sort(["StationID", "Source"])
     )
-    return metrics
+    return df_all, metrics
 
+def plot_results(df_all):
+    #TODO: subplots
+    #TODO: (not here) otherfactors.py
+    for i, param in enumerate(df_all.unique(subset="Source").select("Source").iter_rows()):
+        param = param[0]
+        df = df_all.filter(pl.col("Source") == param)
+        grouped = (
+            df
+            .group_by(["Source", "StationID"])
+            .agg(pl.col("Value"))
+            .sort(["Source", "StationID"])
+        )
+
+        data = [row["Value"] for row in grouped.iter_rows(named=True)]
+        stations_csv = pl.read_csv("weather_stations.csv")
+        labels = [stations_csv.filter(pl.col("ID") == row["StationID"])["Station"][0] for row in grouped.iter_rows(named=True)]
+
+        plt.subplot(2, 2, i+1)
+        plt.violinplot(data, showmeans=True, showmedians=True)
+        if i >= 2:
+            plt.xticks(range(1, len(labels) + 1), labels, rotation=90)
+
+        plt.title(param)
+        if param == "Nederbördsmängd":
+            plt.yscale("symlog", linthresh=1e-3)
+            plt.ylim(bottom=0)
+            plt.ylabel("Value (symlog scale)")
+        else:
+            plt.ylabel("Value")
+        plt.tight_layout()
+    plt.subplots_adjust(left=0.05, bottom=0.3, wspace=0.13, hspace=0.2)
+    plt.show()
 
 
 def main():
@@ -121,9 +153,10 @@ def main():
             weather_data.write_csv(OUTPUT_CSV_RAW(param))
             print(f"Wrote weather data to {OUTPUT_CSV_RAW(param)}")
 
-    metrics = plot_results(OUTPUT_CSV_RAW, PARAMETERS_URL, METEO_PARAMS)
+    df_all, metrics = analyze_results(OUTPUT_CSV_RAW, PARAMETERS_URL, METEO_PARAMS)
     print(metrics)
     metrics.write_csv(OUTPUT_CSV_ANALYSIS)
+    plot_results(df_all)
 
 if __name__ == "__main__":
     main()
