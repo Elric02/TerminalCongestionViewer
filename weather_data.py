@@ -113,8 +113,6 @@ def analyze_results(csv_path_lambda, parameters_url, meteo_params):
     return df_all, metrics
 
 def plot_results(df_all):
-    #TODO: subplots
-    #TODO: (not here) otherfactors.py
     for i, param in enumerate(df_all.unique(subset="Source").select("Source").iter_rows()):
         param = param[0]
         df = df_all.filter(pl.col("Source") == param)
