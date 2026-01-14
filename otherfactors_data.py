@@ -12,7 +12,6 @@ from skyfield import api
 # Also worth mentioning: we use a simplified method and only estimate the visible satellite, not 100% reliable. But probably OK for comparing from one place/date/time to another
 
 #TODO
-# Change requested date/time to global parameter
 # For each sat, only select the TLE measurement that is the closest to the requested time
 # Get automatically altitude (should be doable via lantmateriet or https://en-gb.topographic-map.com/map-v1zs/Sweden/)
 # Possibly increase vis threshold? possibly do something with az if relevant? (Basically, the question is: how can we consider that a satellite has line-of-sight?)
@@ -26,7 +25,7 @@ from skyfield import api
 
 
 VIS_THRESH_DEG = 10 # Below visibility threshold (in degrees)
-
+DESIRED_DATETIME = [2025, 5, 15, 16, 0, 0] # Date and time to study. Format: [year, month, day, hours, minutes, seconds]
 
 
 
@@ -42,7 +41,7 @@ with open("../celestrak_may2024/combined.txt") as f:
         satellites.append(api.EarthSatellite(l1, l2, name))
 
 ts = api.load.timescale()
-t = ts.utc(2025, 5, 15, 16, 0, 0)
+t = ts.utc(*DESIRED_DATETIME)
 
 # Karesuando: 68.4418	22.4435
 observer = api.wgs84.latlon(
@@ -52,7 +51,22 @@ observer = api.wgs84.latlon(
 )
 visible_count = 0
 
-for sat in satellites:
+# Contains the sat occurrence that is the closest in time to the desired date/time
+best_sat_occ = {}
+for sat_occ in satellites:
+    # Keep only if closer in time
+    try:
+        current_best_time_diff = abs(best_sat_occ[sat_occ.name].epoch - t)
+        sat_time_diff = abs(sat_occ.epoch - t)
+        if sat_time_diff < current_best_time_diff:
+            best_sat_occ[sat_occ.name] = sat_occ
+        else:
+            continue
+    except KeyError:
+        best_sat_occ[sat_occ.name] = sat_occ
+
+for sat_name in best_sat_occ:
+    sat = best_sat_occ[sat_name]
     print(sat)
     difference = sat - observer
     topocentric = difference.at(t)
@@ -64,4 +78,4 @@ for sat in satellites:
        print("Line-of-sight detected")
        visible_count += 1
 
-print("Visible satellites:", visible_count)
+print(f"Visible satellites: {visible_count} out of {len(best_sat_occ)}")
