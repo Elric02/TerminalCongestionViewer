@@ -1,0 +1,11 @@
+>>> from math import fabs
+>>> from numpy import ones
+>>> from trafficintelligence.ml import prototypeCluster
+
+>>> nTrajectories = 7
+>>> similarityFunc = lambda x, y: 1.-fabs(x-y)/(nTrajectories-1)
+>>> similarities = -ones((nTrajectories, nTrajectories))
+>>> prototypeIndices = prototypeCluster(range(nTrajectories), similarities, 1., similarityFunc, optimizeCentroid = True) # too large to be similar
+>>> len(prototypeIndices) == nTrajectories
+True
+>>> # could use lists to have a length

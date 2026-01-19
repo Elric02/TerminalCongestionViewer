@@ -1,0 +1,9 @@
+matplotlib
+numpy
+scipy
+scikit-image
+scikit-learn
+shapely
+pandas
+munkres
+sqlalchemy

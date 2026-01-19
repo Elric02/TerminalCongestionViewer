@@ -1,0 +1,129 @@
+>>> from io import StringIO
+>>> from os import remove
+>>> from trafficintelligence.storage import *
+>>> from trafficintelligence.utils import openCheck, readline
+>>> from trafficintelligence.moving import MovingObject, Point, TimeInterval, Trajectory, prepareAlignments
+
+>>> f = openCheck('non_existant_file.txt')
+File non_existant_file.txt could not be opened.
+
+>>> nonexistentFilename = "nonexistent"
+>>> loadTrajectoriesFromSqlite(nonexistentFilename, 'feature')
+Impossible to load from non-existing file nonexistent
+[]
+
+>>> o1 = MovingObject.generate(2, Point(0.,0.), Point(1.,0.), TimeInterval(0,10))
+>>> o2 = MovingObject.generate(3, Point(1.,1.), Point(-0.5,-0.2), TimeInterval(0,9))
+>>> saveTrajectoriesToSqlite('test.sqlite', [o1, o2], 'feature')
+>>> objects = loadTrajectoriesFromSqlite('test.sqlite', 'feature')
+>>> objects[0].getNum() == o1.num
+True
+>>> objects[1].getNum() == o2.num
+True
+>>> o1.getTimeInterval() == objects[0].getTimeInterval()
+True
+>>> o2.getTimeInterval() == objects[1].getTimeInterval()
+True
+>>> o1.getVelocities().length() == objects[0].getVelocities().length()
+True
+>>> o2.getVelocities().length() == objects[1].getVelocities().length()
+True
+>>> o1.getVelocities() == objects[0].getVelocities()
+True
+>>> o2.getVelocities() == objects[1].getVelocities()
+True
+>>> o1.getPositions() == objects[0].getPositions()
+True
+>>> o2.getPositions() == objects[1].getPositions()
+True
+>>> objects = loadTrajectoriesFromSqlite('test.sqlite', 'feature', timeStep = 2)
+>>> objects[0].positions.length()
+6
+>>> objects[1].positions.length()
+5
+>>> objects = loadTrajectoriesFromSqlite('test.sqlite', 'feature', timeStep = 3)
+>>> objects[0].positions.length()
+4
+>>> objects[1].positions.length()
+4
+>>> remove('test.sqlite')
+
+>>> align1 = Trajectory.fromPointList([Point(-1, 0), Point(20, 0)])
+>>> align2 = Trajectory.fromPointList([Point(-9, -3), Point(6, 3)])
+>>> align1.computeCumulativeDistances()
+>>> align2.computeCumulativeDistances()
+>>> prepareAlignments([align1, align2])
+>>> o1.projectCurvilinear([align1, align2])
+>>> o2.projectCurvilinear([align1, align2])
+>>> saveTrajectoriesToSqlite('test.sqlite', [o1, o2], 'curvilinear')
+>>> addCurvilinearTrajectoriesFromSqlite('test.sqlite', {o.num: o for o in objects})
+>>> o1.curvilinearPositions[3][:2] == objects[0].curvilinearPositions[3][:2]
+True
+>>> o1.curvilinearPositions[7][:2] == objects[0].curvilinearPositions[7][:2]
+True
+>>> [str(l) for l in o1.curvilinearPositions.getLanes()] == objects[0].curvilinearPositions.getLanes()
+True
+>>> o2.curvilinearPositions[2][:2] == objects[1].curvilinearPositions[2][:2]
+True
+>>> o2.curvilinearPositions[6][:2] == objects[1].curvilinearPositions[6][:2]
+True
+>>> [str(l) for l in o2.curvilinearPositions.getLanes()] == objects[1].curvilinearPositions.getLanes()
+True
+>>> remove('test.sqlite')
+
+>>> f1 = MovingObject.generate(3, Point(0.,0.), Point(1.,0.), TimeInterval(0,10))
+>>> f2 = MovingObject.generate(4, Point(1.,1.), Point(-0.5,-0.2), TimeInterval(0,9))
+>>> o1 = MovingObject(num = 1, userType = 1)
+>>> o1.features = [f1, f2]
+>>> saveTrajectoriesToSqlite('test.sqlite', [o1], 'object')
+>>> objects = loadTrajectoriesFromSqlite('test.sqlite', 'object', withFeatures = True)
+>>> len(objects)
+1
+>>> reloaded1 = objects[0]
+>>> reloaded1.getNum() == o1.getNum()
+True
+>>> reloaded1.getUserType() == o1.getUserType()
+True
+>>> len(reloaded1.featureNumbers)
+2
+>>> len(reloaded1.features)
+2
+>>> reloaded1.getPositionAt(0) == Point.midPoint(f1.getPositionAt(0), f2.getPositionAt(0))
+True
+>>> reloaded1.getPositionAt(5) == Point.midPoint(f1.getPositionAt(5), f2.getPositionAt(5))
+True
+>>> reloaded1.getPositionAt(10) == f1.getPositionAt(10)
+True
+>>> set(reloaded1.featureNumbers) == set([f1.num, f2.num])
+True
+>>> remove('test.sqlite')
+
+>>> strio = StringIO('# asdlfjasdlkj0\nsadlkfjsdlakjf')
+>>> readline(strio)
+'sadlkfjsdlakjf'
+>>> strio = StringIO('# asdlfjasdlkj0\nsadlkfjsdlakjf')
+>>> readline(strio, ['#'])
+'sadlkfjsdlakjf'
+>>> strio = StringIO('# asdlfjasdlkj0\nsadlkfjsdlakjf')
+>>> readline(strio, ['%'])
+'# asdlfjasdlkj0'
+>>> strio = StringIO('# asdlfjasdlkj0\nsadlkfjsdlakjf')
+>>> readline(strio, '%*$')
+'# asdlfjasdlkj0'
+>>> readline(strio, '%#')
+'sadlkfjsdlakjf'
+
+>>> from sklearn.mixture import GaussianMixture
+>>> from numpy.random import random_sample
+>>> nPoints = 50
+>>> points = random_sample(nPoints*2).reshape(nPoints,2)
+>>> gmm = GaussianMixture(n_components = 4, covariance_type = 'full')
+>>> tmp = gmm.fit(points)
+>>> gmmId = 0
+>>> savePOIsToSqlite('pois-tmp.sqlite', gmm, 'end', gmmId)
+>>> reloadedGmm = loadPOIsFromSqlite('pois-tmp.sqlite')
+>>> int(sum(gmm.predict(points) == reloadedGmm[gmmId].predict(points))) == nPoints
+True
+>>> reloadedGmm[gmmId].gmmTypes[0] == 'end'
+True
+>>> remove('pois-tmp.sqlite')

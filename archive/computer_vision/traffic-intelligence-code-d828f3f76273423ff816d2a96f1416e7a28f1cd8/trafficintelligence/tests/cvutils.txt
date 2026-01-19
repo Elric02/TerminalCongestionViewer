@@ -1,0 +1,47 @@
+>>> from numpy import array, round, ones, dot, linalg, absolute
+>>> import cv2
+>>> from trafficintelligence import cvutils
+>>> img = cv2.imread("../samples/val-dor-117-111.png")
+>>> width = img.shape[1]
+>>> height = img.shape[0]
+>>> intrinsicCameraMatrix = array([[ 377.42,    0.  ,  639.12], [   0.  ,  378.43,  490.2 ], [   0.  ,    0.  ,    1.  ]])
+>>> distortionCoefficients = array([-0.11759321, 0.0148536, 0.00030756, -0.00020578, -0.00091816])# distortionCoefficients = array([-0.11759321, 0., 0., 0., 0.])
+>>> multiplicationFactor = 1.31
+>>> [map1, map2], tmp = cvutils.computeUndistortMaps(width, height, multiplicationFactor, intrinsicCameraMatrix, distortionCoefficients)
+>>> undistorted = cv2.remap(img, map1, map2, interpolation=cv2.INTER_LINEAR)
+>>> (undistorted.shape == array([int(round(height*multiplicationFactor)), int(round(width*multiplicationFactor)), 3])).all()
+np.True_
+>>> imgPoints = array([[[150.,170.],[220.,340.],[340.,440.],[401.,521.]]])
+>>> newCameraMatrix = cv2.getDefaultNewCameraMatrix(intrinsicCameraMatrix, (int(round(width*multiplicationFactor)), int(round(height*multiplicationFactor))), True)
+>>> undistortedPoints = cv2.undistortPoints(imgPoints, intrinsicCameraMatrix, distortionCoefficients, P = newCameraMatrix).reshape(-1, 2) # undistort and project as if seen by new camera
+>>> invNewCameraMatrix = linalg.inv(newCameraMatrix)
+>>> tmp = ones((imgPoints[0].shape[0], 3))
+>>> tmp[:,:2] = undistortedPoints
+>>> reducedPoints = dot(invNewCameraMatrix, tmp.T).T
+>>> origPoints = cv2.projectPoints(reducedPoints, (0.,0.,0.), (0.,0.,0.), intrinsicCameraMatrix, distortionCoefficients)[0].reshape(-1,2)
+>>> (round(origPoints[1:,:]) == imgPoints[0][1:,:]).all()
+np.True_
+>>> (absolute(origPoints[0,:]-imgPoints[0][0,:])).max() < 6.
+np.True_
+>>> reducedPoints2 = cvutils.newCameraProject(undistortedPoints.T, invNewCameraMatrix)
+>>> (reducedPoints == reducedPoints).all()
+np.True_
+
+>>> undistortedPoints2 = cv2.undistortPoints(imgPoints, intrinsicCameraMatrix, distortionCoefficients).reshape(-1, 2) # undistort and project as if seen by new camera
+>>> undistortedPoints2 = cvutils.newCameraProject(undistortedPoints2.T, newCameraMatrix)
+>>> (undistortedPoints == undistortedPoints2.T).all()
+np.True_
+
+>>> undistortedPoints = cv2.undistortPoints(imgPoints, intrinsicCameraMatrix, distortionCoefficients).reshape(-1, 2) # undistort to ideal points
+>>> origPoints = cvutils.worldToImageProject(undistortedPoints.T, intrinsicCameraMatrix, distortionCoefficients).T
+>>> (round(origPoints[1:,:]) == imgPoints[0][1:,:]).all()
+np.True_
+>>> (absolute(origPoints[0,:]-imgPoints[0][0,:])).max() < 6.
+np.True_
+
+>>> undistortedPoints = cvutils.imageToWorldProject(imgPoints[0].T, intrinsicCameraMatrix, distortionCoefficients)
+>>> origPoints = cvutils.worldToImageProject(undistortedPoints, intrinsicCameraMatrix, distortionCoefficients).T
+>>> (round(origPoints[1:,:]) == imgPoints[0][1:,:]).all()
+np.True_
+>>> (absolute(origPoints[0,:]-imgPoints[0][0,:])).max() < 6.
+np.True_

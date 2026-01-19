@@ -1,0 +1,30 @@
+DIMENSION	4						# number of variables
+
+BB_EXE		"$python3 site-parameters-optimization.py"      # 'site-parameters-optimization.py' is the blackbox program
+BB_OUTPUT_TYPE	OBJ					        # object will be minimized
+
+X0		initial-parameters-4.txt                        # starting point
+
+LOWER_BOUND	( 2 0.1 0.1 1.0 )			  	# all variables' lower bounds
+UPPER_BOUND	( 100 10 5 15 )					# all variables' upper bounds
+
+MAX_BB_EVAL	500						# the algorithm terminates when
+								# n black-box evaluations have
+								# been made
+							  
+# TMP_DIR	/tmp						# indicates a directory where
+								# temporary files are put
+								# (increases performance by ~100%
+								# if you're working on a network
+								# account and if TMP_DIR is on a
+								# local disk)
+
+DISPLAY_DEGREE 2 
+
+# DISPLAY_ALL_EVAL yes
+
+DISPLAY_STATS BBE ( SOL ) OBJ					# Display the number of evaluation (BBE),
+                                                                # the current solution ( SOL ) and the objective
+
+# STATS_FILE test.txt BBE ( SOL ) OBJ
+HISTORY_FILE	      history.txt

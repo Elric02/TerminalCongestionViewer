@@ -1,0 +1,49 @@
+>>> from trafficintelligence.indicators import *
+>>> from trafficintelligence.moving import TimeInterval, Trajectory
+
+>>> indic1 = TemporalIndicator('bla', {4:0,5:3,6:-4})
+>>> indic1.empty()
+False
+>>> indic1.getIthValue(1)
+3
+>>> indic1.getIthValue(3)
+>>> indic1[6]
+-4
+>>> indic1[7]
+>>> [v for v in indic1]
+[0, 3, -4]
+>>> indic1 = TemporalIndicator('bla', {2:0,4:3,5:-5})
+>>> indic1.getIthValue(1)
+3
+>>> indic1.getIthValue(3)
+>>> indic1[2]
+0
+
+>>> ttc = SeverityIndicator('TTC', {t:t-1 for t in TimeInterval(1,11)}, mostSevereIsMax = False)
+>>> ttc.getMostSevereValue(1)
+np.float64(0.0)
+>>> ttc.getMostSevereValue(2)
+np.float64(0.5)
+>>> ttc.getMostSevereValue(centile = 10.)
+np.float64(1.0)
+>>> ttc.mostSevereIsMax = True
+>>> ttc.getMostSevereValue(1)
+np.float64(10.0)
+>>> ttc.getMostSevereValue(2)
+np.float64(9.5)
+>>> ttc.getMostSevereValue(centile = 10.)
+np.float64(9.0)
+
+>>> t1 = Trajectory([[0.5,1.5,2.5],[0.5,3.5,6.5]])
+>>> m = indicatorMap([1,2,3], t1, 1)
+>>> m[(1.0, 3.0)]
+np.float64(2.0)
+>>> m[(2.0, 6.0)]
+np.float64(3.0)
+>>> m[(0.0, 0.0)]
+np.float64(1.0)
+>>> m = indicatorMap([1,2,3], t1, 4)
+>>> m[(0.0, 1.0)]
+np.float64(3.0)
+>>> m[(0.0, 0.0)]
+np.float64(1.5)

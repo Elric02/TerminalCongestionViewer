@@ -1,0 +1,28 @@
+>>> from moving import *
+>>> from shapely.geometry import Polygon
+>>> from shapely.prepared import prep
+
+>>> t1 = Trajectory([[0.5,1.5,2.5],[0.5,3.5,6.5]])
+>>> poly = Polygon([[0,0],[4,0],[4,3],[0,3]])
+>>> sub1, sub2 = t1.getTrajectoryInPolygon(poly)
+>>> sub1
+(0.500000,0.500000)
+>>> sub1, sub2 = t1.getTrajectoryInPolygon(Polygon([[10,10],[14,10],[14,13],[10,13]]))
+>>> sub1.length()
+0
+>>> sub1, sub2 = t1.getTrajectoryInPolygon(prep(poly))
+>>> sub1
+(0.500000,0.500000)
+>>> t2 = t1.differentiate(True)
+>>> sub1, sub2 = t1.getTrajectoryInPolygon(prep(poly), t2)
+>>> sub1.length() == sub2.length()
+True
+>>> sub1
+(0.500000,0.500000)
+>>> sub2
+(1.000000,3.000000)
+
+>>> t1.proportionInPolygon(poly, 0.5)
+False
+>>> t1.proportionInPolygon(poly, 0.3)
+True

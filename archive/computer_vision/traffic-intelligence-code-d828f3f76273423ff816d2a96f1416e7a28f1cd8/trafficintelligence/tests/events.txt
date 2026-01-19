@@ -1,0 +1,129 @@
+>>> from trafficintelligence.events import *
+>>> from trafficintelligence.moving import MovingObject, TimeInterval, Point
+>>> from trafficintelligence.prediction import ConstantPredictionParameters
+
+>>> objects = [MovingObject(num = i, timeInterval = TimeInterval(0,10)) for i in range(10)]
+>>> interactions = createInteractions(objects)
+>>> len([i for i in interactions if len(i.roadUserNumbers) == 1])
+0
+>>> len(interactions)
+45
+>>> objects2 = [MovingObject(num = i, timeInterval = TimeInterval(0,10)) for i in range(100, 110)]
+>>> interactions = createInteractions(objects, objects2)
+>>> len([i for i in interactions if len(i.roadUserNumbers) == 1])
+0
+>>> objects3 = [MovingObject(num = i, timeInterval = TimeInterval(12,22)) for i in range(100, 110)]
+>>> interactions = createInteractions(objects, objects3)
+>>> len(interactions)
+0
+>>> interactions = createInteractions(objects, objects3, 3)
+>>> len(interactions)
+100
+>>> interactions[0].getTimeInterval().empty()
+True
+
+>>> o1 = MovingObject.generate(1, Point(-5.,0.), Point(0.,0.), TimeInterval(0,10))
+>>> o2 = MovingObject.generate(2, Point(0.,-5.), Point(0.,1.), TimeInterval(0,10))
+>>> inter = Interaction(roadUser1 = o1, roadUser2 = o2)
+>>> inter.computeIndicators() # should not crash with 0 speed
+>>> va = inter.getIndicator("Velocity Angle")
+>>> va.empty()
+True
+
+>>> o1 = MovingObject.generate(1, Point(-5.,0.), Point(1.,0.), TimeInterval(0,10))
+>>> o2 = MovingObject.generate(2, Point(0.,-5.), Point(0.,1.), TimeInterval(0,10))
+>>> inter = Interaction(roadUser1 = o1, roadUser2 = o2)
+>>> inter.computeIndicators()
+>>> predictionParams = ConstantPredictionParameters()
+>>> inter.computeCrossingsCollisions(predictionParams, 0.1, 10)
+>>> ttc = inter.getIndicator("Time to Collision")
+>>> ttc[0]
+np.float64(5.0)
+>>> ttc[1]
+np.float64(4.0)
+>>> (inter.collisionPoints[0][0] - Point(0.,0.)).norm2() < 0.0001
+True
+>>> (inter.collisionPoints[4][0] - Point(0.,0.)).norm2() < 0.0001
+True
+>>> inter.getIndicator(Interaction.indicatorNames[1])[4] < 0.000001 # collision angle
+np.True_
+>>> inter.getIndicator(Interaction.indicatorNames[1])[5] is None
+True
+>>> inter.getIndicator(Interaction.indicatorNames[1])[6] # doctest:+ELLIPSIS
+np.float64(3.1415...)
+
+# test if reseting object
+>>> o2 = MovingObject.generate(2, Point(0.,-5.), Point(0.,-1.), TimeInterval(0,10))
+>>> inter.setRoadUsers([o1,o2])
+>>> ttc = inter.getIndicator("Time to Collision")
+>>> ttc[0]
+np.float64(5.0)
+>>> inter.computeIndicators()
+>>> inter.computeCrossingsCollisions(predictionParams, 0.1, 10)
+>>> inter.getIndicator("Time to Collision") is None
+True
+
+# test low speed
+>>> inter = Interaction(roadUser1 = o1, roadUser2 = o2)
+>>> inter.computeIndicators()
+>>> predictionParams = ConstantPredictionParameters()
+>>> inter.computeCrossingsCollisions(predictionParams, 0.1, 10, speedThreshold = 1.)
+>>> inter.getIndicator("Time to Collision") is None
+True
+
+# 0 speed users
+>>> inter = Interaction(roadUser1 = MovingObject.generate(1, Point(-5.,0.), Point(0.,0.), TimeInterval(0,10)), roadUser2 = MovingObject.generate(2, Point(0.,-5.), Point(0.,0.), TimeInterval(0,10)))
+>>> inter.computeIndicators()
+>>> predictionParams = ConstantPredictionParameters()
+>>> inter.computeCrossingsCollisions(predictionParams, 0.1, 10)
+>>> inter.getIndicator("Time to Collision") is None
+True
+
+# test categorize
+>>> from collections import Counter
+>>> from numpy import pi
+>>> o1 = MovingObject.generate(0, Point(0,0), Point(1,0), TimeInterval(0,100))
+>>> o2 = MovingObject.generate(0, Point(100,1), Point(-1,0), TimeInterval(0,100))
+>>> inter12 = Interaction(roadUser1 = o1, roadUser2 = o2)
+>>> inter12.computeIndicators()
+>>> inter12.categorize(pi*20/180, pi*45/180)
+>>> Counter(inter12.categories.values()).most_common()[0][0] # head on
+0
+>>> inter12.categories[max(inter12.categories.keys())] # then side
+2
+>>> o3 = MovingObject.generate(0, Point(0,2), Point(1,0), TimeInterval(0,100))
+>>> inter13 = Interaction(roadUser1 = o1, roadUser2 = o3)
+>>> inter13.computeIndicators()
+>>> inter13.categorize(pi*20/180, pi*45/180)
+>>> Counter(inter13.categories.values()).most_common()[0][0] # parallel
+3
+>>> len(Counter(inter13.categories.values()))
+1
+>>> o4 = MovingObject.generate(0, Point(100,20), Point(-1,0), TimeInterval(0,100))
+>>> inter14 = Interaction(roadUser1 = o1, roadUser2 = o4)
+>>> inter14.computeIndicators()
+>>> inter14.categorize(pi*20/180, pi*45/180)
+>>> Counter(inter14.categories.values()).most_common()[0][0] # side
+2
+>>> inter12.categories[0] # first head on
+0
+>>> inter12.categories[max(inter12.categories.keys())] # then side
+2
+>>> o5 = MovingObject.generate(0, Point(50,50), Point(0,-1), TimeInterval(0,100))
+>>> inter15 = Interaction(roadUser1 = o1, roadUser2 = o5)
+>>> inter15.computeIndicators()
+>>> inter15.categorize(pi*20/180, pi*45/180)
+>>> Counter(inter15.categories.values()).most_common()[0][0] # side
+2
+>>> len(Counter(inter15.categories.values()))
+1
+>>> o6 = MovingObject.generate(0, Point(50,1), Point(0,0), TimeInterval(0,100))
+>>> inter16 = Interaction(roadUser1 = o1, roadUser2 = o6)
+>>> inter16.computeIndicators()
+>>> inter16.categorize(pi*20/180, pi*45/180, speedThreshold = 0.1)
+>>> Counter(inter16.categories.values()).most_common()[0][0] # stationary
+4
+>>> 49 in inter16.categories
+True
+>>> 51 in inter16.categories # not stationary interaction past the user
+False
