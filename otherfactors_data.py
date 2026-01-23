@@ -31,14 +31,15 @@ LONGITUDE = 22.4435 # Longitude of the place to study
 LATITUDE = 68.4418 # Longitude of the place to study
 # Karesuando: lat 68.4418 lon 22.4435
 
-ELEVATION_API = "google" # "open" if you want to use open-elevation.com, "google" for Google Elevation, "local" for the local file
+ELEVATION_API = "local" # "open" if you want to use open-elevation.com, "google" for Google Elevation, "local" for the local file
 GOOGLE_API_KEY_PATH = "google_api_key.txt" # Path to the key for the Google API usage. Can be ignored if Google is unused
 LOCAL_ELEVATION_PATH = "tempdata/elevation_data_archive.txt" # Path to the local elevation data archive file (txt). Leave blank if you don't want one
 
+SATELLITE_TLE_PATH = "../data/celestrak/galileo_may2024/combined.txt" # Path to the TLE file of satellites, must cover at least the desired date
 
 
 satellites = []
-with open("../celestrak/galileo_may2024/combined.txt") as f:
+with open(SATELLITE_TLE_PATH) as f:
     lines = f.readlines()
     for i in range(0, len(lines), 3):
         name = lines[i].strip()
@@ -51,28 +52,28 @@ t = ts.utc(*DESIRED_DATETIME)
 
 # Get altitude
 def call_elevation_api(url, params):
-    '''response = requests.get(url, params=params)
+    response = requests.get(url, params=params)
     response.raise_for_status()
     elevation_data = response.json()
     if "results" not in elevation_data or len(elevation_data["results"]) == 0:
         raise RuntimeError("No elevation data returned")
-    elevation = int(elevation_data["results"][0]["elevation"])'''
-    elevation = 330
-    # Skip if we don't want a local file
+    elevation = int(elevation_data["results"][0]["elevation"])
+    print(f"Returned altitude: {elevation}m")
+    # Local file creation/update, kip if we don't want a local file
     if LOCAL_ELEVATION_PATH != "":
-        #TODO: file is erased?
         # Make sure file exists (create if it doesn't)
-        with open(LOCAL_ELEVATION_PATH, 'w') as f:
+        with open(LOCAL_ELEVATION_PATH, 'a+') as f:
             # Add elevation to corresponding latitude and longitude (dict_key)
             dict_key = f"{LATITUDE}/{LONGITUDE}"
             # Check if file is empty
             if os.stat(LOCAL_ELEVATION_PATH).st_size == 0:
                 elevation_dict = {}
             else:
-                elevation_dict = f.read()
-            print(elevation_dict)
-            exit()
+                f.seek(0)
+                elevation_dict = json.loads(f.read())
             elevation_dict[dict_key] = elevation
+            f.seek(0)
+            f.truncate()
             f.write(json.dumps(elevation_dict))
     return elevation
 if ELEVATION_API == "open":
@@ -85,9 +86,10 @@ elif ELEVATION_API == "google":
     elevation = call_elevation_api(url, params)
 elif ELEVATION_API == "local":
     if LOCAL_ELEVATION_PATH == "": raise RuntimeError("No LOCAL_ELEVATION_PATH provided")
-    elevation_df = pl.read_csv(LOCAL_ELEVATION_PATH)
-    if elevation_df[LATITUDE, LONGITUDE] == "": raise RuntimeError("No elevation value in local file for provided coordinates")
-    elevation = elevation_df[LATITUDE, LONGITUDE]
+    with open(LOCAL_ELEVATION_PATH, 'r') as f:
+        elevation_dict = json.load(f)
+        if elevation_dict[f"{LATITUDE}/{LONGITUDE}"] == "": raise RuntimeError("No elevation value in local file for provided coordinates")
+        elevation = elevation_dict[f"{LATITUDE}/{LONGITUDE}"]
 
 observer = api.wgs84.latlon(
     latitude_degrees=LATITUDE,
