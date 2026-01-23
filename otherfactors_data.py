@@ -26,7 +26,7 @@ import os
 
 
 VIS_THRESH_DEG = 10 # Below satellite visibility threshold (in degrees), default is 10
-DESIRED_DATETIME = [2025, 5, 15, 16, 0, 0] # Date and time to study. Format: [year, month, day, hours, minutes, seconds]
+DESIRED_DATETIME = [2025, 5, 1, 16, 0, 0] # Date and time to study. Format: [year, month, day, hours, minutes, seconds]
 LONGITUDE = 22.4435 # Longitude of the place to study
 LATITUDE = 68.4418 # Longitude of the place to study
 # Karesuando: lat 68.4418 lon 22.4435
@@ -38,91 +38,101 @@ LOCAL_ELEVATION_PATH = "tempdata/elevation_data_archive.txt" # Path to the local
 SATELLITE_TLE_PATH = "../data/celestrak/galileo_may2024/combined.txt" # Path to the TLE file of satellites, must cover at least the desired date
 
 
-satellites = []
-with open(SATELLITE_TLE_PATH) as f:
-    lines = f.readlines()
-    for i in range(0, len(lines), 3):
-        name = lines[i].strip()
-        l1 = lines[i+1].strip()
-        l2 = lines[i+2].strip()
-        satellites.append(api.EarthSatellite(l1, l2, name))
+def get_visible_satellites_count():
+    satellites = []
+    with open(SATELLITE_TLE_PATH) as f:
+        lines = f.readlines()
+        for i in range(0, len(lines), 3):
+            name = lines[i].strip()
+            l1 = lines[i+1].strip()
+            l2 = lines[i+2].strip()
+            satellites.append(api.EarthSatellite(l1, l2, name))
 
-ts = api.load.timescale()
-t = ts.utc(*DESIRED_DATETIME)
+    ts = api.load.timescale()
+    t = ts.utc(*DESIRED_DATETIME)
 
-# Get altitude
-def call_elevation_api(url, params):
-    response = requests.get(url, params=params)
-    response.raise_for_status()
-    elevation_data = response.json()
-    if "results" not in elevation_data or len(elevation_data["results"]) == 0:
-        raise RuntimeError("No elevation data returned")
-    elevation = int(elevation_data["results"][0]["elevation"])
-    print(f"Returned altitude: {elevation}m")
-    # Local file creation/update, kip if we don't want a local file
-    if LOCAL_ELEVATION_PATH != "":
-        # Make sure file exists (create if it doesn't)
-        with open(LOCAL_ELEVATION_PATH, 'a+') as f:
-            # Add elevation to corresponding latitude and longitude (dict_key)
-            dict_key = f"{LATITUDE}/{LONGITUDE}"
-            # Check if file is empty
-            if os.stat(LOCAL_ELEVATION_PATH).st_size == 0:
-                elevation_dict = {}
-            else:
+    # Get altitude
+    def call_elevation_api(url, params):
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        elevation_data = response.json()
+        if "results" not in elevation_data or len(elevation_data["results"]) == 0:
+            raise RuntimeError("No elevation data returned")
+        elevation = int(elevation_data["results"][0]["elevation"])
+        print(f"Returned altitude: {elevation}m")
+        # Local file creation/update, kip if we don't want a local file
+        if LOCAL_ELEVATION_PATH != "":
+            # Make sure file exists (create if it doesn't)
+            with open(LOCAL_ELEVATION_PATH, 'a+') as f:
+                # Add elevation to corresponding latitude and longitude (dict_key)
+                dict_key = f"{LATITUDE}/{LONGITUDE}"
+                # Check if file is empty
+                if os.stat(LOCAL_ELEVATION_PATH).st_size == 0:
+                    elevation_dict = {}
+                else:
+                    f.seek(0)
+                    elevation_dict = json.loads(f.read())
+                elevation_dict[dict_key] = elevation
                 f.seek(0)
-                elevation_dict = json.loads(f.read())
-            elevation_dict[dict_key] = elevation
-            f.seek(0)
-            f.truncate()
-            f.write(json.dumps(elevation_dict))
-    return elevation
-if ELEVATION_API == "open":
-    url = "https://api.open-elevation.com/api/v1/lookup"
-    params = {"locations": f"{LATITUDE},{LONGITUDE}"}
-    elevation = call_elevation_api(url, params)
-elif ELEVATION_API == "google":
-    url = "https://maps.googleapis.com/maps/api/elevation/json"
-    params = {"locations": f"{LATITUDE},{LONGITUDE}", "key": open(GOOGLE_API_KEY_PATH, "r").read()}
-    elevation = call_elevation_api(url, params)
-elif ELEVATION_API == "local":
-    if LOCAL_ELEVATION_PATH == "": raise RuntimeError("No LOCAL_ELEVATION_PATH provided")
-    with open(LOCAL_ELEVATION_PATH, 'r') as f:
-        elevation_dict = json.load(f)
-        if elevation_dict[f"{LATITUDE}/{LONGITUDE}"] == "": raise RuntimeError("No elevation value in local file for provided coordinates")
-        elevation = elevation_dict[f"{LATITUDE}/{LONGITUDE}"]
+                f.truncate()
+                f.write(json.dumps(elevation_dict))
+        return elevation
+    if ELEVATION_API == "open":
+        url = "https://api.open-elevation.com/api/v1/lookup"
+        params = {"locations": f"{LATITUDE},{LONGITUDE}"}
+        elevation = call_elevation_api(url, params)
+    elif ELEVATION_API == "google":
+        url = "https://maps.googleapis.com/maps/api/elevation/json"
+        params = {"locations": f"{LATITUDE},{LONGITUDE}", "key": open(GOOGLE_API_KEY_PATH, "r").read()}
+        elevation = call_elevation_api(url, params)
+    elif ELEVATION_API == "local":
+        if LOCAL_ELEVATION_PATH == "": raise RuntimeError("No LOCAL_ELEVATION_PATH provided")
+        with open(LOCAL_ELEVATION_PATH, 'r') as f:
+            elevation_dict = json.load(f)
+            if elevation_dict[f"{LATITUDE}/{LONGITUDE}"] == "": raise RuntimeError("No elevation value in local file for provided coordinates")
+            elevation = elevation_dict[f"{LATITUDE}/{LONGITUDE}"]
 
-observer = api.wgs84.latlon(
-    latitude_degrees=LATITUDE,
-    longitude_degrees=LONGITUDE,
-    elevation_m=elevation
-)
-visible_count = 0
+    observer = api.wgs84.latlon(
+        latitude_degrees=LATITUDE,
+        longitude_degrees=LONGITUDE,
+        elevation_m=elevation
+    )
+    visible_count = 0
 
-# Contains the sat occurrence that is the closest in time to the desired date/time
-best_sat_occ = {}
-for sat_occ in satellites:
-    # Keep only if closer in time
-    try:
-        current_best_time_diff = abs(best_sat_occ[sat_occ.name].epoch - t)
-        sat_time_diff = abs(sat_occ.epoch - t)
-        if sat_time_diff < current_best_time_diff:
+    # Contains the sat occurrence that is the closest in time to the desired date/time
+    best_sat_occ = {}
+    for sat_occ in satellites:
+        # Keep only if closer in time
+        try:
+            current_best_time_diff = abs(best_sat_occ[sat_occ.name].epoch - t)
+            sat_time_diff = abs(sat_occ.epoch - t)
+            if sat_time_diff < current_best_time_diff:
+                best_sat_occ[sat_occ.name] = sat_occ
+            else:
+                continue
+        except KeyError:
             best_sat_occ[sat_occ.name] = sat_occ
-        else:
-            continue
-    except KeyError:
-        best_sat_occ[sat_occ.name] = sat_occ
 
-for sat_name in best_sat_occ:
-    sat = best_sat_occ[sat_name]
-    print(sat)
-    difference = sat - observer
-    topocentric = difference.at(t)
+    for sat_name in best_sat_occ:
+        sat = best_sat_occ[sat_name]
+        #print(sat)
+        difference = sat - observer
+        topocentric = difference.at(t)
 
-    alt, az, distance = topocentric.altaz()
-    print(f"alt {alt}, az {az}, distance {distance}")
+        alt, az, distance = topocentric.altaz()
+        #print(f"alt {alt}, az {az}, distance {distance}")
 
-    if alt.degrees >= VIS_THRESH_DEG:
-       print("Line-of-sight detected")
-       visible_count += 1
+        if alt.degrees >= VIS_THRESH_DEG:
+            #print("Line-of-sight detected")
+            visible_count += 1
 
-print(f"Visible satellites: {visible_count} out of {len(best_sat_occ)}")
+    print(f"Visible satellites: {visible_count} out of {len(best_sat_occ)}")
+    return visible_count
+
+
+
+def main():
+    visible_count = get_visible_satellites_count()
+
+if __name__ == "__main__":
+    main()
