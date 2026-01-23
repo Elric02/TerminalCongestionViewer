@@ -14,10 +14,10 @@ import os
 # Also worth mentioning: we use a simplified method and only estimate the visible satellite, not 100% reliable. But probably OK for comparing from one place/date/time to another
 
 #TODO
-# Get automatically altitude (should be doable via lantmateriet or https://en-gb.topographic-map.com/map-v1zs/Sweden/)
 # Possibly increase vis threshold? possibly do something with az if relevant? (Basically, the question is: how can we consider that a satellite has line-of-sight?)
 # Refactor the whole process in a single function, taking as parameter location, date/time. Also, figure out what to do with TLE data.
-# Do it for all 12 stations, not just Karesuando
+# Do it for all 12 stations, not just Karesuando. For this, update weather_stations.csv with station name, ID, lat and lon
+# Use gdoper to calculate hdop
 
 #LATER
 # For HDOP: still to find how to obtain: altitude (should be doable via lantmateriet or https://en-gb.topographic-map.com/map-v1zs/Sweden/), nb of visible satellites. Then, can use gdoper
@@ -35,7 +35,7 @@ ELEVATION_API = "local" # "open" if you want to use open-elevation.com, "google"
 GOOGLE_API_KEY_PATH = "google_api_key.txt" # Path to the key for the Google API usage. Can be ignored if Google is unused
 LOCAL_ELEVATION_PATH = "tempdata/elevation_data_archive.txt" # Path to the local elevation data archive file (txt). Leave blank if you don't want one
 
-SATELLITE_TLE_PATH = "../data/celestrak/galileo_may2024/combined.txt" # Path to the TLE file of satellites, must cover at least the desired date
+SATELLITE_TLE_PATH = "../data/celestrak/galileo_may2024/combined.txt" # Path to the TLE file of satellites. These have to be downloaded separately and must cover at least the desired date
 
 
 def get_visible_satellites_count():
