@@ -1,8 +1,0 @@
-# Git ignores
-rinex_files*
-test_data*
-.vscode*
-__pycache*
-
-venv_gdoper
-sso_tokens.json
