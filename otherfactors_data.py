@@ -5,6 +5,7 @@ import gnss_lib_py as glp
 from skyfield import api
 import json
 import os
+import libs.gdoper.src as gdoper # downloaded from https://github.com/FelipeTJ/gdoper
 
 
 #NOTES
@@ -16,8 +17,6 @@ import os
 # Altitude data from open-elevation is limited to below 60deg latitude
 
 #TODO
-# Refactor the whole process in a single function, taking as parameter location, date/time. Also, figure out what to do with TLE data.
-# Do it for all 12 stations, not just Karesuando. For this, update weather_stations.csv with station name, ID, lat and lon
 # Use gdoper to calculate hdop
 
 #LATER
