@@ -12,6 +12,8 @@ import os
 # All TLE measurements from the same sat return the same position because it is the position extrapolated for that satellite at the requested time (20250515-16:00), not the position of the satellite at the time of TLE measurement (so it's all good)
 # For now the TLE data includes all Galileo satellites, in the future need to see what constellations the bus pos systems use
 # Also worth mentioning: we use a simplified method and only estimate the visible satellite, not 100% reliable. But probably OK for comparing from one place/date/time to another
+#
+# Altitude data from open-elevation is limited to below 60deg latitude
 
 #TODO
 # Refactor the whole process in a single function, taking as parameter location, date/time. Also, figure out what to do with TLE data.
@@ -24,16 +26,14 @@ import os
 # Tropospheric delay?
 
 
-VIS_THRESH_DEG = 10 # Below satellite visibility threshold (in degrees), default is 10
+VIS_THRESH_DEG = 12 # Below satellite visibility threshold (in degrees), default is 12
 DESIRED_DATETIME = [2025, 5, 1, 16, 0, 0] # Date and time to study. Format: [year, month, day, hours, minutes, seconds]
-LONGITUDE = 22.4435 # Longitude of the place to study
-LATITUDE = 68.4418 # Longitude of the place to study
-# Karesuando: lat 68.4418 lon 22.4435
 
 ELEVATION_API = "local" # "open" if you want to use open-elevation.com, "google" for Google Elevation, "local" for the local file
 GOOGLE_API_KEY_PATH = "google_api_key.txt" # Path to the key for the Google API usage. Can be ignored if Google is unused
 LOCAL_ELEVATION_PATH = "tempdata/elevation_data_archive.txt" # Path to the local elevation data archive file (txt). Leave blank if you don't want one
 
+LOCATIONS_CSV_PATH = "weather_stations.csv" # Path to the CSV containing the list of locations to study, with their coordinates
 SATELLITE_TLE_PATH = [ # List of paths to the TLE files of satellites. Each file is treated separately. These have to be downloaded separately and must cover at least the desired date
     "../data/celestrak/galileo_may2024/combined.txt",
     "../data/celestrak/gps_may2024/combined.txt",
@@ -42,7 +42,7 @@ SATELLITE_TLE_PATH = [ # List of paths to the TLE files of satellites. Each file
     ]
 
 
-def get_visible_satellites_count(tle_path):
+def get_visible_satellites_count(tle_path, lat, lon):
     satellites = []
     with open(tle_path) as f:
         lines = f.readlines()
@@ -69,7 +69,7 @@ def get_visible_satellites_count(tle_path):
             # Make sure file exists (create if it doesn't)
             with open(LOCAL_ELEVATION_PATH, 'a+') as f:
                 # Add elevation to corresponding latitude and longitude (dict_key)
-                dict_key = f"{LATITUDE}/{LONGITUDE}"
+                dict_key = f"{lat}/{lon}"
                 # Check if file is empty
                 if os.stat(LOCAL_ELEVATION_PATH).st_size == 0:
                     elevation_dict = {}
@@ -83,22 +83,22 @@ def get_visible_satellites_count(tle_path):
         return elevation
     if ELEVATION_API == "open":
         url = "https://api.open-elevation.com/api/v1/lookup"
-        params = {"locations": f"{LATITUDE},{LONGITUDE}"}
+        params = {"locations": f"{lat},{lon}"}
         elevation = call_elevation_api(url, params)
     elif ELEVATION_API == "google":
         url = "https://maps.googleapis.com/maps/api/elevation/json"
-        params = {"locations": f"{LATITUDE},{LONGITUDE}", "key": open(GOOGLE_API_KEY_PATH, "r").read()}
+        params = {"locations": f"{lat},{lon}", "key": open(GOOGLE_API_KEY_PATH, "r").read()}
         elevation = call_elevation_api(url, params)
     elif ELEVATION_API == "local":
         if LOCAL_ELEVATION_PATH == "": raise RuntimeError("No LOCAL_ELEVATION_PATH provided")
         with open(LOCAL_ELEVATION_PATH, 'r') as f:
             elevation_dict = json.load(f)
-            if elevation_dict[f"{LATITUDE}/{LONGITUDE}"] == "": raise RuntimeError("No elevation value in local file for provided coordinates")
-            elevation = elevation_dict[f"{LATITUDE}/{LONGITUDE}"]
+            if elevation_dict[f"{lat}/{lon}"] == "": raise RuntimeError("No elevation value in local file for provided coordinates")
+            elevation = elevation_dict[f"{lat}/{lon}"]
 
     observer = api.wgs84.latlon(
-        latitude_degrees=LATITUDE,
-        longitude_degrees=LONGITUDE,
+        latitude_degrees=lat,
+        longitude_degrees=lon,
         elevation_m=elevation
     )
     visible_count = 0
@@ -136,9 +136,12 @@ def get_visible_satellites_count(tle_path):
 
 
 def main():
-    for tle_path in SATELLITE_TLE_PATH:
-        print("Getting visible satellites for the following TLE file:", tle_path)
-        visible_count = get_visible_satellites_count(tle_path)
+    locations_df = pl.read_csv(LOCATIONS_CSV_PATH)
+    for location in locations_df.iter_rows(named=True):
+        print("LOCATION:", location["Name"])
+        for tle_path in SATELLITE_TLE_PATH:
+            print("Getting visible satellites for the following TLE file:", tle_path)
+            visible_count = get_visible_satellites_count(tle_path, location["Lat"], location["Lon"])
 
 if __name__ == "__main__":
     main()
