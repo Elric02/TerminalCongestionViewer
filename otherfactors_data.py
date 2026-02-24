@@ -5,6 +5,11 @@ import gnss_lib_py as glp
 from skyfield import api
 import json
 import os
+from datetime import datetime
+import shutil
+import gzip
+import numpy as np
+import warnings
 
 
 #NOTES
@@ -14,20 +19,25 @@ import os
 # Also worth mentioning: we use a simplified method and only estimate the visible satellite, not 100% reliable. But probably OK for comparing from one place/date/time to another
 #
 # Altitude data from open-elevation is limited to below 60deg latitude
+#
+# Feb 2026: skyfield / CelesTrak usage replaced by gnss_lib_py / EarthData
 
 #TODO
-# Refactor the whole process in a single function, taking as parameter location, date/time. Also, figure out what to do with TLE data.
-# Do it for all 12 stations, not just Karesuando. For this, update weather_stations.csv with station name, ID, lat and lon
-# Use gdoper to calculate hdop
+# Clean get_hdop
+# Have actual parameters for get_hdop
+# Find out how it matters to select an IGS station or another (KIR800SWE is in Kiruna)
+# Decide on using the "hourly" or the "daily" data (rn we're using "daily")
+# Verify get_hdop results
+# Remove get_visible_satellites_count
+# Implement other source of altitude (should be doable via lantmateriet or https://en-gb.topographic-map.com/map-v1zs/Sweden/)
 
 #LATER
-# For HDOP: still to find how to obtain: altitude (should be doable via lantmateriet or https://en-gb.topographic-map.com/map-v1zs/Sweden/), nb of visible satellites. Then, can use gdoper
 # Ionospheric delay?
 # Tropospheric delay?
 
 
 VIS_THRESH_DEG = 12 # Below satellite visibility threshold (in degrees), default is 12
-DESIRED_DATETIME = [2025, 5, 1, 16, 0, 0] # Date and time to study. Format: [year, month, day, hours, minutes, seconds]
+DESIRED_DATETIME = [2024, 5, 12, 17, 0, 0] # Date and time to study. Format: [year, month, day, hours, minutes, seconds]
 
 ELEVATION_API = "local" # "open" if you want to use open-elevation.com, "google" for Google Elevation, "local" for the local file
 GOOGLE_API_KEY_PATH = "google_api_key.txt" # Path to the key for the Google API usage. Can be ignored if Google is unused
@@ -134,6 +144,134 @@ def get_visible_satellites_count(tle_path, lat, lon):
     return visible_count
 
 
+def get_hdop(lat, lon):
+
+    # Login is done according to this page: https://nsidc.org/data/user-resources/help-center/creating-netrc-file-earthdata-login
+
+    # ==========================================
+    # USER INPUT
+    # ==========================================
+    lat = 52.0
+    lon = 13.0
+    alt = 100.0
+    epoch = datetime(2024, 1, 15, 12, 0, 0)
+    elev_mask_deg = 10
+    download_dir = "tempdata/rinex_nav"
+    os.makedirs(download_dir, exist_ok=True)
+
+    # ==========================================
+    # STEP 1: Build CDDIS URL
+    # ==========================================
+    year = epoch.year
+    doy = epoch.timetuple().tm_yday
+
+    yy = str(year)[-2:]
+    doy_str = f"{doy:03d}"
+
+    # Daily broadcast navigation file
+    filename = f"KIR800SWE_R_{year}{doy_str}0000_01D_GN.rnx.gz"
+
+    url = (
+        f"https://cddis.nasa.gov/archive/gnss/data/daily/"
+        f"{year}/{doy_str}/{yy}n/{filename}"
+    )
+
+    local_gz = os.path.join(download_dir, filename)
+    local_rnx = local_gz.replace(".gz", "")
+
+    # EarthData login
+    ED_username, ED_password = open("earthdata_creds.txt", "r").read().splitlines()
+
+    # ==========================================
+    # STEP 2: Download from NASA CDDIS
+    # ==========================================
+    if not os.path.exists(local_rnx):
+        print("Downloading RINEX navigation file...")
+        print(url)
+        with requests.get(url, stream=True) as r:
+            r.raise_for_status()
+            with open(local_gz, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+
+        # Decompress
+        with gzip.open(local_gz, 'rb') as f_in:
+            with open(local_rnx, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+
+        os.remove(local_gz)
+
+    print("Navigation file ready:", local_rnx)
+
+    # ==========================================
+    # STEP 3: Receiver to ECEF
+    # ==========================================
+    rx_ecef = glp.utils.coordinates.geodetic_to_ecef(
+        np.array([[lat, lon, alt]])
+    ).flatten()
+
+    # ==========================================
+    # STEP 4: Parse Navigation File
+    # ==========================================
+    # Suppress unused warning
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=FutureWarning)
+        navdata = glp.parsers.rinex_nav.RinexNav(local_rnx)
+
+    # ==========================================
+    # STEP 5: Compute Satellite Positions
+    # ==========================================
+    sat_states = glp.utils.sv_models.find_sv_states(
+        epoch.timestamp(),
+        navdata
+    )
+
+    sat_positions = sat_states[["x_sv_m", "y_sv_m", "z_sv_m"]]
+
+    # ==========================================
+    # STEP 6: Elevation Mask Filtering
+    # ==========================================
+    el_az = glp.utils.coordinates.ecef_to_el_az(
+        rx_ecef,
+        sat_positions
+    )
+    elev = el_az[0]  # radians
+    # visible contains a Boolean value indicating for each sat if they are visible or not
+    visible = elev > np.deg2rad(elev_mask_deg)
+    # Only keep visible satellites
+    sat_positions = sat_positions[:, visible]
+    sat_positions = sat_positions.T
+
+    if sat_positions.shape[0] < 4:
+        raise RuntimeError("Not enough satellites for DOP calculation")
+
+    # ==========================================
+    # STEP 7: Build Geometry Matrix
+    # ==========================================
+    G = []
+
+    for sat in sat_positions:
+        diff = sat - rx_ecef
+        rho = np.linalg.norm(diff)
+        los = diff / rho
+        G.append(np.hstack((los, 1)))
+
+    G = np.array(G)
+
+    # ==========================================
+    # STEP 8: Compute HDOP
+    # ==========================================
+    Q = np.linalg.inv(G.T @ G)
+
+    HDOP = np.sqrt(Q[0, 0] + Q[1, 1])
+    VDOP = np.sqrt(Q[2, 2])
+    PDOP = np.sqrt(Q[0, 0] + Q[1, 1] + Q[2, 2])
+
+    print("Visible satellites:", sat_positions.shape[0])
+    print("HDOP:", round(HDOP, 3))
+    print("VDOP:", round(VDOP, 3))
+    print("PDOP:", round(PDOP, 3))
+
 
 def main():
     locations_df = pl.read_csv(LOCATIONS_CSV_PATH)
@@ -142,6 +280,7 @@ def main():
         for tle_path in SATELLITE_TLE_PATH:
             print("Getting visible satellites for the following TLE file:", tle_path)
             visible_count = get_visible_satellites_count(tle_path, location["Lat"], location["Lon"])
+            get_hdop(location["Lat"], location["Lon"])
 
 if __name__ == "__main__":
     main()
