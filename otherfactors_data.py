@@ -21,15 +21,17 @@ import warnings
 # Altitude data from open-elevation is limited to below 60deg latitude
 #
 # Feb 2026: skyfield / CelesTrak usage replaced by gnss_lib_py / EarthData
+# IMPORTANT NOTE: for now, login is done according to this page: https://nsidc.org/data/user-resources/help-center/creating-netrc-file-earthdata-login
+# Which means that the _netrc file in the folder here is unused. Need to find out what to do with that long term
 
 #TODO
-# Clean get_hdop
 # Have actual parameters for get_hdop
 # Find out how it matters to select an IGS station or another (KIR800SWE is in Kiruna)
 # Decide on using the "hourly" or the "daily" data (rn we're using "daily")
 # Verify get_hdop results
 # Remove get_visible_satellites_count
 # Implement other source of altitude (should be doable via lantmateriet or https://en-gb.topographic-map.com/map-v1zs/Sweden/)
+# Think about how to handle the login process (_netrc) for the future
 
 #LATER
 # Ionospheric delay?
@@ -145,12 +147,7 @@ def get_visible_satellites_count(tle_path, lat, lon):
 
 
 def get_hdop(lat, lon):
-
-    # Login is done according to this page: https://nsidc.org/data/user-resources/help-center/creating-netrc-file-earthdata-login
-
-    # ==========================================
-    # USER INPUT
-    # ==========================================
+    # Temporary input
     lat = 52.0
     lon = 13.0
     alt = 100.0
@@ -159,32 +156,21 @@ def get_hdop(lat, lon):
     download_dir = "tempdata/rinex_nav"
     os.makedirs(download_dir, exist_ok=True)
 
-    # ==========================================
-    # STEP 1: Build CDDIS URL
-    # ==========================================
+    # Build CDDIS URL and paths
     year = epoch.year
-    doy = epoch.timetuple().tm_yday
-
     yy = str(year)[-2:]
-    doy_str = f"{doy:03d}"
-
+    # Day in format 000-356 as a string
+    day_str = f"{epoch.timetuple().tm_yday:03d}"
     # Daily broadcast navigation file
-    filename = f"KIR800SWE_R_{year}{doy_str}0000_01D_GN.rnx.gz"
-
+    filename = f"KIR800SWE_R_{year}{day_str}0000_01D_GN.rnx.gz"
     url = (
         f"https://cddis.nasa.gov/archive/gnss/data/daily/"
-        f"{year}/{doy_str}/{yy}n/{filename}"
+        f"{year}/{day_str}/{yy}n/{filename}"
     )
-
     local_gz = os.path.join(download_dir, filename)
     local_rnx = local_gz.replace(".gz", "")
 
-    # EarthData login
-    ED_username, ED_password = open("earthdata_creds.txt", "r").read().splitlines()
-
-    # ==========================================
-    # STEP 2: Download from NASA CDDIS
-    # ==========================================
+    # Download RINEX data (if not already downloaded)
     if not os.path.exists(local_rnx):
         print("Downloading RINEX navigation file...")
         print(url)
@@ -193,50 +179,28 @@ def get_hdop(lat, lon):
             with open(local_gz, "wb") as f:
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
-
         # Decompress
         with gzip.open(local_gz, 'rb') as f_in:
             with open(local_rnx, 'wb') as f_out:
                 shutil.copyfileobj(f_in, f_out)
-
         os.remove(local_gz)
-
     print("Navigation file ready:", local_rnx)
-
-    # ==========================================
-    # STEP 3: Receiver to ECEF
-    # ==========================================
-    rx_ecef = glp.utils.coordinates.geodetic_to_ecef(
-        np.array([[lat, lon, alt]])
-    ).flatten()
-
-    # ==========================================
-    # STEP 4: Parse Navigation File
-    # ==========================================
     # Suppress unused warning
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=FutureWarning)
+        # Parse the navigation file
         navdata = glp.parsers.rinex_nav.RinexNav(local_rnx)
 
-    # ==========================================
-    # STEP 5: Compute Satellite Positions
-    # ==========================================
-    sat_states = glp.utils.sv_models.find_sv_states(
-        epoch.timestamp(),
-        navdata
-    )
-
+    # Compute satellite positions
+    sat_states = glp.utils.sv_models.find_sv_states(epoch.timestamp(), navdata)
     sat_positions = sat_states[["x_sv_m", "y_sv_m", "z_sv_m"]]
 
-    # ==========================================
-    # STEP 6: Elevation Mask Filtering
-    # ==========================================
-    el_az = glp.utils.coordinates.ecef_to_el_az(
-        rx_ecef,
-        sat_positions
-    )
-    elev = el_az[0]  # radians
-    # visible contains a Boolean value indicating for each sat if they are visible or not
+    # Convert coordinates to ECEF format
+    rx_ecef = glp.utils.coordinates.geodetic_to_ecef(np.array([[lat, lon, alt]])).flatten()
+    # Get satellite positions in elevation/azimuth
+    el_az = glp.utils.coordinates.ecef_to_el_az(rx_ecef, sat_positions)
+    elev = el_az[0] # Elevation in radians
+    # This array contains Boolean values indicating for each sat if they are visible or not
     visible = elev > np.deg2rad(elev_mask_deg)
     # Only keep visible satellites
     sat_positions = sat_positions[:, visible]
@@ -245,28 +209,21 @@ def get_hdop(lat, lon):
     if sat_positions.shape[0] < 4:
         raise RuntimeError("Not enough satellites for DOP calculation")
 
-    # ==========================================
-    # STEP 7: Build Geometry Matrix
-    # ==========================================
+    # Build Geometry Matrix G
     G = []
-
     for sat in sat_positions:
         diff = sat - rx_ecef
         rho = np.linalg.norm(diff)
         los = diff / rho
         G.append(np.hstack((los, 1)))
-
     G = np.array(G)
 
-    # ==========================================
-    # STEP 8: Compute HDOP
-    # ==========================================
+    # Compute DOP values
     Q = np.linalg.inv(G.T @ G)
-
+    #TODO: Q is Q_deltaX. Compute Q_enu?
     HDOP = np.sqrt(Q[0, 0] + Q[1, 1])
     VDOP = np.sqrt(Q[2, 2])
     PDOP = np.sqrt(Q[0, 0] + Q[1, 1] + Q[2, 2])
-
     print("Visible satellites:", sat_positions.shape[0])
     print("HDOP:", round(HDOP, 3))
     print("VDOP:", round(VDOP, 3))
