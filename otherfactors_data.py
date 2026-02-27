@@ -25,7 +25,6 @@ import warnings
 # Which means that the _netrc file in the folder here is unused. Need to find out what to do with that long term
 
 #TODO
-# Have actual parameters for get_hdop
 # Find out how it matters to select an IGS station or another (KIR800SWE is in Kiruna)
 # Decide on using the "hourly" or the "daily" data (rn we're using "daily")
 # Verify get_hdop results
@@ -41,9 +40,10 @@ import warnings
 VIS_THRESH_DEG = 12 # Below satellite visibility threshold (in degrees), default is 12
 DESIRED_DATETIME = [2024, 5, 12, 17, 0, 0] # Date and time to study. Format: [year, month, day, hours, minutes, seconds]
 
-ELEVATION_API = "local" # "open" if you want to use open-elevation.com, "google" for Google Elevation, "local" for the local file
+ELEVATION_API = "google" # "open" if you want to use open-elevation.com, "google" for Google Elevation, "local" for the local file
 GOOGLE_API_KEY_PATH = "google_api_key.txt" # Path to the key for the Google API usage. Can be ignored if Google is unused
 LOCAL_ELEVATION_PATH = "tempdata/elevation_data_archive.txt" # Path to the local elevation data archive file (txt). Leave blank if you don't want one
+LOCAL_RINEX_PATH = "tempdata/rinex_nav" # Path which the RINEX files will be saved in
 
 LOCATIONS_CSV_PATH = "weather_stations.csv" # Path to the CSV containing the list of locations to study, with their coordinates
 SATELLITE_TLE_PATH = [ # List of paths to the TLE files of satellites. Each file is treated separately. These have to be downloaded separately and must cover at least the desired date
@@ -54,20 +54,8 @@ SATELLITE_TLE_PATH = [ # List of paths to the TLE files of satellites. Each file
     ]
 
 
-def get_visible_satellites_count(tle_path, lat, lon):
-    satellites = []
-    with open(tle_path) as f:
-        lines = f.readlines()
-        for i in range(0, len(lines), 3):
-            name = lines[i].strip()
-            l1 = lines[i+1].strip()
-            l2 = lines[i+2].strip()
-            satellites.append(api.EarthSatellite(l1, l2, name))
-
-    ts = api.load.timescale()
-    t = ts.utc(*DESIRED_DATETIME)
-
-    # Get altitude
+# Return altitude based on provided coordinates
+def get_alt(lat, lon):
     def call_elevation_api(url, params):
         response = requests.get(url, params=params)
         response.raise_for_status()
@@ -76,7 +64,7 @@ def get_visible_satellites_count(tle_path, lat, lon):
             raise RuntimeError("No elevation data returned")
         elevation = int(elevation_data["results"][0]["elevation"])
         print(f"Returned altitude: {elevation}m")
-        # Local file creation/update, kip if we don't want a local file
+        # Local file creation/update, skip if we don't want a local file
         if LOCAL_ELEVATION_PATH != "":
             # Make sure file exists (create if it doesn't)
             with open(LOCAL_ELEVATION_PATH, 'a+') as f:
@@ -93,6 +81,7 @@ def get_visible_satellites_count(tle_path, lat, lon):
                 f.truncate()
                 f.write(json.dumps(elevation_dict))
         return elevation
+    
     if ELEVATION_API == "open":
         url = "https://api.open-elevation.com/api/v1/lookup"
         params = {"locations": f"{lat},{lon}"}
@@ -107,11 +96,26 @@ def get_visible_satellites_count(tle_path, lat, lon):
             elevation_dict = json.load(f)
             if elevation_dict[f"{lat}/{lon}"] == "": raise RuntimeError("No elevation value in local file for provided coordinates")
             elevation = elevation_dict[f"{lat}/{lon}"]
+    return elevation
+
+
+def get_visible_satellites_count(tle_path, lat, lon):
+    satellites = []
+    with open(tle_path) as f:
+        lines = f.readlines()
+        for i in range(0, len(lines), 3):
+            name = lines[i].strip()
+            l1 = lines[i+1].strip()
+            l2 = lines[i+2].strip()
+            satellites.append(api.EarthSatellite(l1, l2, name))
+
+    ts = api.load.timescale()
+    t = ts.utc(*DESIRED_DATETIME)
 
     observer = api.wgs84.latlon(
         latitude_degrees=lat,
         longitude_degrees=lon,
-        elevation_m=elevation
+        elevation_m=get_alt(lat, lon)
     )
     visible_count = 0
 
@@ -147,13 +151,9 @@ def get_visible_satellites_count(tle_path, lat, lon):
 
 
 def get_hdop(lat, lon):
-    # Temporary input
-    lat = 52.0
-    lon = 13.0
-    alt = 100.0
-    epoch = datetime(2024, 1, 15, 12, 0, 0)
-    elev_mask_deg = 10
-    download_dir = "tempdata/rinex_nav"
+    alt = get_alt(lat, lon)
+    epoch = datetime(*DESIRED_DATETIME)
+    download_dir = LOCAL_RINEX_PATH
     os.makedirs(download_dir, exist_ok=True)
 
     # Build CDDIS URL and paths
@@ -201,11 +201,12 @@ def get_hdop(lat, lon):
     el_az = glp.utils.coordinates.ecef_to_el_az(rx_ecef, sat_positions)
     elev = el_az[0] # Elevation in radians
     # This array contains Boolean values indicating for each sat if they are visible or not
-    visible = elev > np.deg2rad(elev_mask_deg)
+    visible = elev > np.deg2rad(VIS_THRESH_DEG)
     # Only keep visible satellites
     sat_positions = sat_positions[:, visible]
     sat_positions = sat_positions.T
 
+    print("Visible satellites:", sat_positions.shape[0])
     if sat_positions.shape[0] < 4:
         raise RuntimeError("Not enough satellites for DOP calculation")
 
@@ -237,7 +238,7 @@ def main():
         for tle_path in SATELLITE_TLE_PATH:
             print("Getting visible satellites for the following TLE file:", tle_path)
             visible_count = get_visible_satellites_count(tle_path, location["Lat"], location["Lon"])
-            get_hdop(location["Lat"], location["Lon"])
+        get_hdop(location["Lat"], location["Lon"])
 
 if __name__ == "__main__":
     main()
