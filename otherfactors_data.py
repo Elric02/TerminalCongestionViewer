@@ -25,9 +25,8 @@ import warnings
 # Which means that the _netrc file in the folder here is unused. Need to find out what to do with that long term
 
 #TODO
-# Find out how it matters to select an IGS station or another (KIR800SWE is in Kiruna)
-# Decide on using the "hourly" or the "daily" data (rn we're using "daily")
-# Verify get_hdop results
+# Add a parameter for the choice of constellation
+# Verify get_hdop calulations/results
 # Remove get_visible_satellites_count
 # Implement other source of altitude (should be doable via lantmateriet or https://en-gb.topographic-map.com/map-v1zs/Sweden/)
 # Think about how to handle the login process (_netrc) for the future
@@ -40,7 +39,7 @@ import warnings
 VIS_THRESH_DEG = 12 # Below satellite visibility threshold (in degrees), default is 12
 DESIRED_DATETIME = [2024, 5, 12, 17, 0, 0] # Date and time to study. Format: [year, month, day, hours, minutes, seconds]
 
-ELEVATION_API = "google" # "open" if you want to use open-elevation.com, "google" for Google Elevation, "local" for the local file
+ELEVATION_API = "local" # "open" if you want to use open-elevation.com, "google" for Google Elevation, "local" for the local file
 GOOGLE_API_KEY_PATH = "google_api_key.txt" # Path to the key for the Google API usage. Can be ignored if Google is unused
 LOCAL_ELEVATION_PATH = "tempdata/elevation_data_archive.txt" # Path to the local elevation data archive file (txt). Leave blank if you don't want one
 LOCAL_RINEX_PATH = "tempdata/rinex_nav" # Path which the RINEX files will be saved in
@@ -193,18 +192,21 @@ def get_hdop(lat, lon):
 
     # Compute satellite positions
     sat_states = glp.utils.sv_models.find_sv_states(epoch.timestamp(), navdata)
-    sat_positions = sat_states[["x_sv_m", "y_sv_m", "z_sv_m"]]
 
     # Convert coordinates to ECEF format
     rx_ecef = glp.utils.coordinates.geodetic_to_ecef(np.array([[lat, lon, alt]])).flatten()
     # Get satellite positions in elevation/azimuth
-    el_az = glp.utils.coordinates.ecef_to_el_az(rx_ecef, sat_positions)
+    el_az = glp.utils.coordinates.ecef_to_el_az(rx_ecef, sat_states[["x_sv_m", "y_sv_m", "z_sv_m"]])
     elev = el_az[0] # Elevation in radians
     # This array contains Boolean values indicating for each sat if they are visible or not
     visible = elev > np.deg2rad(VIS_THRESH_DEG)
     # Only keep visible satellites
-    sat_positions = sat_positions[:, visible]
-    sat_positions = sat_positions.T
+    sat_states = pl.DataFrame(sat_states.pandas_df()[visible])
+    # For satellites present twice, only keep the first one
+    sat_states = sat_states.unique(subset=['sv_id'], keep='first')
+    with pl.Config(tbl_rows=1000):
+        print(sat_states.sort("sv_id"))
+    sat_positions = sat_states[["x_sv_m", "y_sv_m", "z_sv_m"]].to_numpy()
 
     print("Visible satellites:", sat_positions.shape[0])
     if sat_positions.shape[0] < 4:
@@ -213,10 +215,10 @@ def get_hdop(lat, lon):
     # Build Geometry Matrix G
     G = []
     for sat in sat_positions:
+        #TODO: swap rx_ecef and sat + add a "minus" to rho?
         diff = sat - rx_ecef
-        rho = np.linalg.norm(diff)
-        los = diff / rho
-        G.append(np.hstack((los, 1)))
+        rho = diff / np.linalg.norm(diff)
+        G.append(np.hstack((rho, 1)))
     G = np.array(G)
 
     # Compute DOP values
