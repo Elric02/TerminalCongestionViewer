@@ -23,9 +23,10 @@ import warnings
 # Feb 2026: skyfield / CelesTrak usage replaced by gnss_lib_py / EarthData
 # IMPORTANT NOTE: for now, login is done according to this page: https://nsidc.org/data/user-resources/help-center/creating-netrc-file-earthdata-login
 # Which means that the _netrc file in the folder here is unused. Need to find out what to do with that long term
+#
+# Currently we only use GPS data, the other constellations create an error on gnss-lib / georinex trying to load the data
 
 #TODO
-# Add a parameter for the choice of constellation
 # Verify get_hdop calulations/results
 # Remove get_visible_satellites_count
 # Implement other source of altitude (should be doable via lantmateriet or https://en-gb.topographic-map.com/map-v1zs/Sweden/)
@@ -149,7 +150,7 @@ def get_visible_satellites_count(tle_path, lat, lon):
     return visible_count
 
 
-def get_hdop(lat, lon):
+def get_hdop(lat, lon, constellation):
     alt = get_alt(lat, lon)
     epoch = datetime(*DESIRED_DATETIME)
     download_dir = LOCAL_RINEX_PATH
@@ -161,10 +162,10 @@ def get_hdop(lat, lon):
     # Day in format 000-356 as a string
     day_str = f"{epoch.timetuple().tm_yday:03d}"
     # Daily broadcast navigation file
-    filename = f"KIR800SWE_R_{year}{day_str}0000_01D_GN.rnx.gz"
+    filename = f"KIR800SWE_R_{year}{day_str}0000_01D_{constellation[2]}.rnx.gz"
     url = (
         f"https://cddis.nasa.gov/archive/gnss/data/daily/"
-        f"{year}/{day_str}/{yy}n/{filename}"
+        f"{year}/{day_str}/{yy}{constellation[1]}/{filename}"
     )
     local_gz = os.path.join(download_dir, filename)
     local_rnx = local_gz.replace(".gz", "")
@@ -208,7 +209,7 @@ def get_hdop(lat, lon):
         print(sat_states.sort("sv_id"))
     sat_positions = sat_states[["x_sv_m", "y_sv_m", "z_sv_m"]].to_numpy()
 
-    print("Visible satellites:", sat_positions.shape[0])
+    print(f"Visible satellites (constellation: {constellation[0]}):", sat_positions.shape[0])
     if sat_positions.shape[0] < 4:
         raise RuntimeError("Not enough satellites for DOP calculation")
 
@@ -227,7 +228,6 @@ def get_hdop(lat, lon):
     HDOP = np.sqrt(Q[0, 0] + Q[1, 1])
     VDOP = np.sqrt(Q[2, 2])
     PDOP = np.sqrt(Q[0, 0] + Q[1, 1] + Q[2, 2])
-    print("Visible satellites:", sat_positions.shape[0])
     print("HDOP:", round(HDOP, 3))
     print("VDOP:", round(VDOP, 3))
     print("PDOP:", round(PDOP, 3))
@@ -240,7 +240,10 @@ def main():
         for tle_path in SATELLITE_TLE_PATH:
             print("Getting visible satellites for the following TLE file:", tle_path)
             visible_count = get_visible_satellites_count(tle_path, location["Lat"], location["Lon"])
-        get_hdop(location["Lat"], location["Lon"])
+        #constellations = [["Beidou", "f", "CN"], ["GLONASS", "g", "RN"], ["Galileo", "l", "EN"], ["GPS", "n", "GN"]]
+        constellations = [["GPS", "n", "GN"]]
+        for constellation in constellations:
+            get_hdop(location["Lat"], location["Lon"], constellation)
 
 if __name__ == "__main__":
     main()
