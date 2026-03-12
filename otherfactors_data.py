@@ -27,7 +27,6 @@ import warnings
 # Currently we only use GPS data, the other constellations create an error on gnss-lib / georinex trying to load the data
 
 #TODO
-# Verify get_hdop calulations/results
 # Ionospheric delay
 # Tropospheric delay
 # Remove get_visible_satellites_count
@@ -222,13 +221,8 @@ def get_hdop(lat, lon, constellation):
 
     # Compute DOP values
     Q = np.linalg.inv(G.T @ G)
-    #TODO: Q is Q_deltaX. Compute Q_enu?
     HDOP = np.sqrt(Q[0, 0] + Q[1, 1])
-    VDOP = np.sqrt(Q[2, 2])
-    PDOP = np.sqrt(Q[0, 0] + Q[1, 1] + Q[2, 2])
     print("HDOP:", round(HDOP, 3))
-    print("VDOP:", round(VDOP, 3))
-    print("PDOP:", round(PDOP, 3))
 
 
 def main():
