@@ -28,13 +28,12 @@ import warnings
 
 #TODO
 # Verify get_hdop calulations/results
+# Ionospheric delay
+# Tropospheric delay
 # Remove get_visible_satellites_count
 # Implement other source of altitude (should be doable via lantmateriet or https://en-gb.topographic-map.com/map-v1zs/Sweden/)
+# Give the option to use Swepos instead https://www.lantmateriet.se/en/geodata/gps-geodesy-and-swepos/lantmateriets-doi-objects/swepos-rinex-data/?utm_source=chatgpt.com
 # Think about how to handle the login process (_netrc) for the future
-
-#LATER
-# Ionospheric delay?
-# Tropospheric delay?
 
 
 VIS_THRESH_DEG = 12 # Below satellite visibility threshold (in degrees), default is 12
@@ -216,7 +215,6 @@ def get_hdop(lat, lon, constellation):
     # Build Geometry Matrix G
     G = []
     for sat in sat_positions:
-        #TODO: swap rx_ecef and sat + add a "minus" to rho?
         diff = sat - rx_ecef
         rho = diff / np.linalg.norm(diff)
         G.append(np.hstack((rho, 1)))
