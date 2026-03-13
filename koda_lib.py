@@ -1,3 +1,6 @@
+#TODO (2026-03): update protobuf, see if read_protobuf still works, possibly switch from read_protobuf to something maintained
+
+
 import polars as pl
 import numpy as np
 import read_protobuf
