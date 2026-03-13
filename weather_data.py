@@ -8,7 +8,7 @@ ENTIRE_YEAR = True # True to use TARGET_YEAR, False to use TARGET_DATE
 TARGET_DATE = "2025-05-02" # "YYYY-MM-DD"
 TARGET_YEAR = "2024" # "YYYY"
 DESIRED_STATIONS = [192840, 166910, 162860, 140460, 135460, 107420, 103100, 98230, 85240, 71420, 66110, 52240] # List of the IDs of the stations to include in the output. Leave empty if all stations desired
-METEO_PARAMS = ["1", "6", "7", "9"] # List of the desired parameters to observe (e.g. "7" is the amount ot precipitation aggregated per hour)
+METEO_PARAMS = ["1", "6", "7", "9"] # List of the desired parameters to observe (e.g. "7" is the amount ot precipitation aggregated per hour). Source: https://opendata.smhi.se/metobs/resources/parameter#available-meterology-parameters
 DOWNLOAD_DATA = False # True if data to be requested to SMHI, False if CSVs are already there
 
 # Path for the output CSV containing raw data from SMHI
