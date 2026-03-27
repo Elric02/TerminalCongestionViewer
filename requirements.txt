@@ -1,5 +1,7 @@
 polars
+pandas
 numpy
+protobuf==6.33.6
 read_protobuf
 py7zr
 shapely
