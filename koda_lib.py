@@ -15,7 +15,7 @@ from shapely.geometry import Point, Polygon
 
 
 
-def import_timeframe(provider, date, time_ranges, import_method="online", vehiclepositions_path=None, staticdata_path=None, modulo=1, terminal_coordinates=None, export_type="none", export_name=None): 
+def import_timeframe(provider, date, time_ranges, import_method="online", realtimedata_path="tempdata/realtime", staticdata_path="tempdata/static/static_unzipped", modulo=1, terminal_coordinates=None, export_type="none", export_name=None): 
     """Import VehiclePositions data from KoDa for the specified timeframe in a specific day
 
     :param provider: The desired provider code (e.g. otraf, sl, ul...), full list here:
@@ -28,8 +28,8 @@ def import_timeframe(provider, date, time_ranges, import_method="online", vehicl
     :type time_ranges: list[list[list[int]]]
     :param import_method: Where to get the data (available: online, local), where "online" is requesting directly from KoDa and "local" is from local files
     :type import_method: str
-    :param vehiclepositions_path: (Only if import_method=="local") The path to the content of the VehiclePositions folder (e.g. "../data/realtime/VehiclePositions")
-    :type vehiclepositions_path: str
+    :param realtimedata_path: (Only if import_method=="local") The path to the folder containing real-time GTFS data (e.g. "../data/realtime")
+    :type realtimedata_path: str
     :param staticdata_path: (Only if import_method=="local") The path to the folder containing static GTFS data, i.e. routes.txt, trips.txt... (e.g. "../data/static")
     :type staticdata_path: str
     :param modulo: Consider only 1 every x seconds, where x is this variable. Useful when using large timeframes
@@ -170,8 +170,8 @@ def import_timeframe(provider, date, time_ranges, import_method="online", vehicl
             with py7zr.SevenZipFile(os.path.join(import_path, zip_name), mode='r') as archive:
                 archive.extractall(path=import_path)
     elif import_method == "local":
-        trips = pl.read_csv(staticdata_path+'/trips.txt')
-        routes = pl.read_csv(staticdata_path+'/routes.txt', schema_overrides={'route_id': pl.Utf8})
+        trips = pl.read_csv(os.path.join(staticdata_path, 'trips.txt'))
+        routes = pl.read_csv(os.path.join(staticdata_path, 'routes.txt'), schema_overrides={'route_id': pl.Utf8})
 
     total_df = pl.DataFrame()
     MessageType = gtfs_realtime_pb2.FeedMessage()
