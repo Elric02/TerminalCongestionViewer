@@ -12,10 +12,11 @@ import shutil
 import zipfile
 import py7zr
 from shapely.geometry import Point, Polygon
+import stat
 
 
 
-def import_timeframe(provider, date, time_ranges, import_method="online", realtimedata_path="tempdata/realtime", staticdata_path="tempdata/static/static_unzipped", modulo=1, terminal_coordinates=None, export_type="none", export_name=None): 
+def import_timeframe(provider, date, time_ranges, import_method="online", realtimedata_path="tempdata/realtime", staticdata_path="tempdata/static/static_unzipped", modulo=1, terminal_coordinates=None, export_type="none", export_name=None, delete_tempdata=True): 
     """Import VehiclePositions data from KoDa for the specified timeframe in a specific day
 
     :param provider: The desired provider code (e.g. otraf, sl, ul...), full list here:
@@ -40,6 +41,9 @@ def import_timeframe(provider, date, time_ranges, import_method="online", realti
     :type export_type: str
     :param export_name: Name of the exported file. If None, uses a default one defined in this function
     :type export_name: str
+    :param delete_tempdata: Whether to delete the downloaded GTFS data after processing
+    :type delete_tempdata: Boolean
+    :return: DataFrame containing the data from the specified timeframe
     """
 
 
@@ -204,18 +208,25 @@ def import_timeframe(provider, date, time_ranges, import_method="online", realti
         total_df.write_csv("output/"+file_name)
 
     # Remove all data from tempdata folder
-    print("Operation completed. All data will now be removed from the tempdata folder.")
-    time.sleep(2)
-    for item in os.listdir(import_path):
-        item_path = os.path.join(import_path, item)
-        # Skip .gitignore
-        if item == ".gitignore": continue
-        # Remove directories
-        if os.path.isdir(item_path):
-            shutil.rmtree(item_path)
-        # Remove files
-        else:
-            os.remove(item_path)
+    print("Operation completed.") 
+    if delete_tempdata:
+        print("All GTFS data will now be removed from the tempdata folder.")
+        time.sleep(2)
+        def remove_readonly(func, path, _):
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        for component in ["realtime", "static"]:
+            import_path = os.path.join("tempdata", component)
+            for item in os.listdir(import_path):
+                item_path = os.path.join(import_path, item)
+                # Skip .gitignore
+                if item == ".gitignore": continue
+                # Remove directories
+                if os.path.isdir(item_path):
+                    shutil.rmtree(item_path, onexc=remove_readonly)
+                # Remove files
+                else:
+                    os.remove(item_path)
 
     return total_df
 

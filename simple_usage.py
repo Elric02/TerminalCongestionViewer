@@ -4,7 +4,7 @@ import koda_lib
 
 #provider = "otraf"
 #terminal_coordinates = [(15.621, 58.416), (15.626, 58.416), (15.621, 58.419), (15.626, 58.419)]
-date = "2025-09-16"
+date = "2025-09-20"
 time_ranges = [
     [[7, 0, 0], [7, 59, 59]]
 ]
