@@ -10,6 +10,7 @@ import shutil
 import gzip
 import numpy as np
 import warnings
+import libs.ionex as ionex
 
 
 #NOTES
@@ -148,8 +149,7 @@ def get_visible_satellites_count(tle_path, lat, lon):
     return visible_count
 
 
-def get_hdop(lat, lon, constellation):
-    alt = get_alt(lat, lon)
+def get_cddis_data(constellation, type):
     epoch = datetime(*DESIRED_DATETIME)
     download_dir = LOCAL_RINEX_PATH
     os.makedirs(download_dir, exist_ok=True)
@@ -159,18 +159,27 @@ def get_hdop(lat, lon, constellation):
     yy = str(year)[-2:]
     # Day in format 000-356 as a string
     day_str = f"{epoch.timetuple().tm_yday:03d}"
-    # Daily broadcast navigation file
-    filename = f"KIR800SWE_R_{year}{day_str}0000_01D_{constellation[2]}.rnx.gz"
-    url = (
-        f"https://cddis.nasa.gov/archive/gnss/data/daily/"
-        f"{year}/{day_str}/{yy}{constellation[1]}/{filename}"
-    )
-    local_gz = os.path.join(download_dir, filename)
-    local_rnx = local_gz.replace(".gz", "")
 
-    # Download RINEX data (if not already downloaded)
-    if not os.path.exists(local_rnx):
-        print("Downloading RINEX navigation file...")
+    if type == "RINEX":
+        # Daily broadcast navigation file
+        filename = f"KIR800SWE_R_{year}{day_str}0000_01D_{constellation[2]}.rnx.gz"
+        url = (
+            f"https://cddis.nasa.gov/archive/gnss/data/daily/"
+            f"{year}/{day_str}/{yy}{constellation[1]}/{filename}"
+        )
+    elif type == "IONEX":
+        # Daily TEC map file from ESA
+        filename = f"ESA0OPSRAP_{year}{day_str}0000_01D_01H_GIM.INX.gz"
+        url = (
+            f"https://cddis.nasa.gov/archive/gnss/products/ionex/"
+            f"{year}/{day_str}/{filename}"
+        )
+    local_gz = os.path.join(download_dir, filename)
+    local_file = local_gz.replace(".gz", "")
+
+    # Download RINEX or IONEX data (if not already downloaded)
+    if not os.path.exists(local_file):
+        print(f"Downloading {type} file...")
         print(url)
         with requests.get(url, stream=True) as r:
             r.raise_for_status()
@@ -179,18 +188,24 @@ def get_hdop(lat, lon, constellation):
                     f.write(chunk)
         # Decompress
         with gzip.open(local_gz, 'rb') as f_in:
-            with open(local_rnx, 'wb') as f_out:
+            with open(local_file, 'wb') as f_out:
                 shutil.copyfileobj(f_in, f_out)
         os.remove(local_gz)
-    print("Navigation file ready:", local_rnx)
+    print("Navigation file ready:", local_file)
     # Suppress unused warning
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=FutureWarning)
         # Parse the navigation file
-        navdata = glp.parsers.rinex_nav.RinexNav(local_rnx)
+        navdata = glp.parsers.rinex_nav.RinexNav(local_file)
+        return navdata
+
+
+def get_hdop(timestamp, lat, lon, alt, constellation, navdata):
+    timestamp = datetime(*DESIRED_DATETIME).timestamp()
+    alt = get_alt(lat, lon)
 
     # Compute satellite positions
-    sat_states = glp.utils.sv_models.find_sv_states(epoch.timestamp(), navdata)
+    sat_states = glp.utils.sv_models.find_sv_states(timestamp, navdata)
 
     # Convert coordinates to ECEF format
     rx_ecef = glp.utils.coordinates.geodetic_to_ecef(np.array([[lat, lon, alt]])).flatten()
@@ -225,6 +240,53 @@ def get_hdop(lat, lon, constellation):
     print("HDOP:", round(HDOP, 3))
 
 
+# ACTUALLY, the iono and tropo delays are per-satellite. Find how to get a single value
+# Iono: Vertical Total Electron Content (VTEC)?
+# Tropo: Zenith Tropospheric Delay (ZTD)?
+
+def get_iono_delay(timestamp, lat, lon, alt, navdata):
+    timestamp = datetime(*DESIRED_DATETIME).timestamp()
+
+    # Compute satellite positions
+    sat_states = glp.utils.sv_models.find_sv_states(timestamp, navdata)
+    print(type(sat_states))
+    print(navdata.iono_params)
+    alpha = [1.6764e-08, 0.0, -1.1921e-07, 0.0]
+    beta = [9.0112e4, 0.0, -1.3107e5, 0.0]
+    
+    c = 299792458.0
+    psi = 0.0137 / (elev / np.pi + 0.11) - 0.022
+
+    phi_i = lat / np.pi + psi * np.cos(az)
+    phi_i = np.clip(phi_i, -0.416, 0.416)
+
+    lam_i = lon / np.pi + psi * np.sin(az) / np.cos(phi_i * np.pi)
+
+    phi_m = phi_i + 0.064 * np.cos((lam_i - 1.617) * np.pi)
+
+    t_local = (43200 * lam_i + t) % 86400
+
+    amp = alpha[0] + alpha[1]*phi_m + alpha[2]*phi_m**2 + alpha[3]*phi_m**3
+    per = beta[0] + beta[1]*phi_m + beta[2]*phi_m**2 + beta[3]*phi_m**3
+
+    amp = max(0, amp)
+    per = max(72000, per)
+
+    x = 2 * np.pi * (t_local - 50400) / per
+
+    if abs(x) < 1.57:
+        delay = 5e-9 + amp * (1 - x**2/2 + x**4/24)
+    else:
+        delay = 5e-9
+
+    f = 1 + 16 * (0.53 - elev/np.pi)**3
+
+    return c * f * delay
+    print(len(output))
+    print("Ionospheric delay (m):", round(iono, 3))
+    print("Tropospheric delay (m):", round(tropo, 3))
+
+
 def main():
     locations_df = pl.read_csv(LOCATIONS_CSV_PATH)
     for location in locations_df.iter_rows(named=True):
@@ -235,7 +297,9 @@ def main():
         #constellations = [["Beidou", "f", "CN"], ["GLONASS", "g", "RN"], ["Galileo", "l", "EN"], ["GPS", "n", "GN"]]
         constellations = [["GPS", "n", "GN"]]
         for constellation in constellations:
-            get_hdop(location["Lat"], location["Lon"], constellation)
+            navdata = get_cddis_data(constellation, "RINEX")
+            get_hdop(location["Lat"], location["Lon"], constellation, navdata)
+            get_iono_delay(navdata)
 
 if __name__ == "__main__":
     main()
