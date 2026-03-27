@@ -46,7 +46,9 @@ def import_timeframe(provider, date, time_ranges, import_method="online", realti
     def appendNewPBSecond(hour, minute, second, total_df, MessageType, trips):
         try:
             if import_method == "online":
-                vehiclepositions_path = os.path.join('tempdata', provider, 'VehiclePositions')
+                vehiclepositions_path = os.path.join('tempdata', 'realtime', provider, 'VehiclePositions')
+            elif import_method == "local":
+                vehiclepositions_path = os.path.join(realtimedata_path, provider, 'VehiclePositions')
             filename = provider+'-vehiclepositions-'+date+'T'+hour+'-'+minute+'-'+second+'Z.pb'
             temp_df = read_protobuf.read_protobuf(vehiclepositions_path+'/'+date[0:4]+'/'+date[5:7]+'/'+date[8:]+'/'+hour+'/'+filename, MessageType)
             temp_df = pl.DataFrame(temp_df['entity'].tolist())
@@ -139,7 +141,7 @@ def import_timeframe(provider, date, time_ranges, import_method="online", realti
         # First request to prepare the file. This will take time if the file is not ready yet
         prepare_file_on_server(static_url)
         # Then download the file
-        import_path = f"tempdata"
+        import_path = os.path.join("tempdata", "static")
         zip_name = f"GTFS-{provider.upper()}-{date}.zip"
         download_data(os.path.join(import_path, zip_name), static_url)
         # Unzip the static data
@@ -163,8 +165,8 @@ def import_timeframe(provider, date, time_ranges, import_method="online", realti
             # First request to prepare the file. This will take time if the file is not ready yet
             prepare_file_on_server(realtime_url)
             # Then download the file
-            import_path = f"tempdata"
-            zip_name = f"{provider}-VehiclePositions-{date}-{str(hour).zfill(2)}.zip"
+            import_path = os.path.join("tempdata", "realtime")
+            zip_name = f"{provider}-VehiclePositions-{date}-{str(hour_to_download).zfill(2)}.zip"
             download_data(os.path.join(import_path, zip_name), realtime_url)
             # Unzip the static data
             with py7zr.SevenZipFile(os.path.join(import_path, zip_name), mode='r') as archive:
