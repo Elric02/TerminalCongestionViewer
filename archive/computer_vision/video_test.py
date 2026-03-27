@@ -12,7 +12,7 @@ from ultralytics import YOLO
 import numpy as np
 
 
-VIDEO_PATH = "C:/Users/ElricM/Desktop/Lkpg_bus_terminal.avi_trimmed1.mp4"
+VIDEO_PATH = "C:/Users/ElricM/OneDrive - VTI/Videos/Lkpg_bus_terminal.avi_trimmed1.mp4"
 OUTPUT_CSV = "output/detections.csv"
 OUTPUT_FRAMES = "output/frames"
 MODEL_PATH = "yolo11l.pt"
