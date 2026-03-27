@@ -1,0 +1,5 @@
+polars
+numpy
+read_protobuf
+py7zr
+shapely
