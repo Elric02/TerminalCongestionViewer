@@ -154,7 +154,7 @@ def import_timeframe(provider, date, time_ranges, import_method="online", realti
         with zipfile.ZipFile(os.path.join(import_path, zip_name), 'r') as zip_ref:
             zip_ref.extractall(unzip_path)
         # Import the now-extracted TXT files as DataFrames
-        trips = pl.read_csv(os.path.join(unzip_path, "trips.txt"))
+        trips = pl.read_csv(os.path.join(unzip_path, "trips.txt"), schema_overrides={'route_id': pl.Utf8})
         routes = pl.read_csv(os.path.join(unzip_path, "routes.txt"), schema_overrides={'route_id': pl.Utf8})
         # Determine which hours will be needed to download from KoDa (real-time data)
         hours_to_download = []
