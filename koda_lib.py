@@ -176,7 +176,7 @@ def import_timeframe(provider, date, time_ranges, import_method="online", realti
             with py7zr.SevenZipFile(os.path.join(import_path, zip_name), mode='r') as archive:
                 archive.extractall(path=import_path)
     elif import_method == "local":
-        trips = pl.read_csv(os.path.join(staticdata_path, 'trips.txt'))
+        trips = pl.read_csv(os.path.join(staticdata_path, 'trips.txt'), schema_overrides={'route_id': pl.Utf8})
         routes = pl.read_csv(os.path.join(staticdata_path, 'routes.txt'), schema_overrides={'route_id': pl.Utf8})
 
     total_df = pl.DataFrame()
