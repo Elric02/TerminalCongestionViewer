@@ -98,10 +98,10 @@ def import_timeframe(provider, date, time_ranges, import_method="online", realti
                     route_short_name_list.append(-1)
                     route_type_list.append(-1)
             temp_df = temp_df.with_columns([
-                pl.Series("route_id", routes_list),
-                pl.Series("direction_id", directions_list),
-                pl.Series("route_short_name", route_short_name_list, strict=False),
-                pl.Series("route_type", route_type_list),
+                pl.Series("route_id", routes_list, dtype=pl.Utf8),
+                pl.Series("direction_id", directions_list, dtype=pl.Int64),
+                pl.Series("route_short_name", route_short_name_list, dtype=pl.Utf8),
+                pl.Series("route_type", route_type_list, dtype=pl.Int64),
             ])
             
             total_df = pl.concat([total_df, temp_df], how="diagonal")
