@@ -3,22 +3,35 @@ import traj_dist.distance as tdist
 import numpy as np
 
 
-df = pl.read_csv("output/vehiclepositions_terminal_linköping_2025-09-16.csv", schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8})
+terminal = "bålsta"
+date = "2026-03-12"
+providers = ["sl", "ul"]
 
+temp_df_list = []
+for provider in providers:
+    temp_df_list.append(pl.read_csv(f"output/vehiclepositions_terminal_{terminal}_{provider}_{date}.csv", schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8}))
+df = pl.concat(temp_df_list, how="diagonal_relaxed")
+
+'''
 # Select only data points for the route we want to examine
 df = df.filter(pl.col("route_short_name") == 1)
 df = df.filter(pl.col("direction_id") == 1)
 # Remove incomplete paths / outliers
 df = df.filter(pl.col("trip_id") != "55700000076548069")
+'''
 
 # Select all trip IDs (1 per trajectory) and put them in a list
-trip_ids = df.select(pl.col('trip_id')).unique().to_series().to_list()
+trip_ids = df.select(pl.col('trip_id')).unique().sort('trip_id').to_series().to_list()
+trip_ids = [x for x in trip_ids if x is not None]
 print("Trip IDs considered:", trip_ids)
+
 # Format coordinates points to numpy arrays, 1 per traj, and put them in a list
 trip_coords_list = []
 trip_coords_inv_list = []
 trip_coords_rand_list = []
+i = 0
 for trip in trip_ids:
+    i += 1
     temp_df = df.filter(pl.col("trip_id") == trip)
     trip_coords_list.append(temp_df.select(pl.col('longitude'), pl.col('latitude')).to_numpy())
     trip_coords_inv_list.append(temp_df.select(pl.col('longitude'), pl.col('latitude')).to_numpy()[::-1])
@@ -26,9 +39,10 @@ for trip in trip_ids:
     np.random.shuffle(trip_coords_rand)
     trip_coords_rand_list.append(trip_coords_rand)
 
-print(trip_coords_list[0])
-print(trip_coords_inv_list[0])
-print(trip_coords_rand_list[0])
+#print(trip_coords_list[0])
+#print(trip_coords_inv_list[0])
+#print(trip_coords_rand_list[0])
+print("Length of the trajectories:", [len(traj) for traj in trip_coords_list])
 # Calculate distance measures for each pair of trajectory
 #a=np.array([(116.750,40.632),(116.760,40.642),(116.770,40.652)])
 #b=np.array([(116.751,40.632),(116.761,40.642),(116.771,40.652)])
@@ -59,8 +73,6 @@ print("-- DFD (inverted) --")
 print(dfd_inv)
 print("-- DFD (randomized) --")
 print(dfd_rand)
-print([trip_ids[i] for i in range(len(trip_ids)) for _ in range(i+1, len(trip_ids))])
-print([trip_ids[j] for i in range(len(trip_ids)) for j in range(i+1, len(trip_ids))])
 output = pl.DataFrame(
     {
         "traj1": [trip_ids[i] for i in range(len(trip_ids)) for _ in range(i+1, len(trip_ids))],
@@ -70,4 +82,4 @@ output = pl.DataFrame(
         "dfd": dfd,
     }
 )
-output.write_csv('output/251202_pairwise_distances.csv')
+output.write_csv(f'output/pairwise_distances_{terminal}_{date}.csv')
