@@ -8,7 +8,7 @@ terminal = "linköping"
 date = "2026-03-12"
 providers = ["otraf"]
 # Only used in hour_comparison()
-time_range = [7, 9] # second number not included
+time_range = [5, 24] # second number not included
 
 
 def get_data():
@@ -116,13 +116,13 @@ def hour_comparison(df):
     results = []
     for hour in range(time_range[0], time_range[1]):
         start = datetime.timestamp(datetime.strptime(f"{date} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S"))
-        end = datetime.timestamp(datetime.strptime(f"{date} {hour+1:02d}:00:00", "%Y-%m-%d %H:%M:%S"))
+        end = datetime.timestamp(datetime.strptime(f"{date} {hour:02d}:59:59", "%Y-%m-%d %H:%M:%S"))
         df_hour = df.filter(
             pl.col("timestamp")
             .is_between(
                 start,
                 end,
-                closed="left",
+                closed="both",
             )
         )
         print(f"{hour:02d}:00–{hour+1:02d}:00 => {len(df_hour)} rows")
