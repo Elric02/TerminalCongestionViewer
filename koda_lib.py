@@ -13,6 +13,7 @@ import zipfile
 import py7zr
 from shapely.geometry import Point, Polygon
 import stat
+from datetime import datetime
 
 
 
@@ -112,24 +113,25 @@ def import_timeframe(provider, date, time_ranges, import_method="online", realti
     def prepare_file_on_server(url):
         time_waited = 0
         while True:
-            print("Requesting data from", url)
+            print(datetime.now().strftime("%H:%M:%S"), "Requesting data from", url)
             res_s = os.popen('curl -s -w %{http_code} -I "' + url + '"')
             res = res_s.read()
             print(res)
             if '200' in res: # Data ready to download
-                print("Data is ready to download")
+                print(datetime.now().strftime("%H:%M:%S"), "Data is ready to download")
                 return
             elif '202' in res: # Data will be prepared
-                print("Data is being prepared on the server")
+                print(datetime.now().strftime("%H:%M:%S"), "Data is being prepared on the server")
                 print("Waiting. Time waited so far:", str(time_waited), "minutes")
                 time.sleep(60)
                 time_waited += 1
+                if time_waited%5 == 0: print(datetime.now().strftime("%H:%M:%S"), "Continuing to wait...")
                 continue
             else:
                 raise Exception("Unknown response from server: " + res)
 
     def download_data(path, url):
-        print("downloading file with command: curl -s -o " + path + ' "' + url + '"')
+        print(datetime.now().strftime("%H:%M:%S"), "downloading file with command: curl -s -o " + path + ' "' + url + '"')
         os.system("curl -s -o" + path + ' "' + url + '"')
     
     if import_method == "online":
@@ -191,7 +193,7 @@ def import_timeframe(provider, date, time_ranges, import_method="online", realti
                 minute = math.floor((timestamp-hour*3600)/60)
                 second = timestamp-hour*3600-minute*60
                 if second == time_range[0][2]:
-                    print("Now starting hour", hour, "minute", minute)
+                    print(datetime.now().strftime("%H:%M:%S"), "Now starting hour", hour, "minute", minute)
                 # Add an extra 0 where necessary (for example 08:22)
                 hour = str(hour).zfill(2)
                 minute = str(minute).zfill(2)
@@ -208,9 +210,9 @@ def import_timeframe(provider, date, time_ranges, import_method="online", realti
         total_df.write_csv("output/"+file_name)
 
     # Remove all data from tempdata folder
-    print("Operation completed.") 
+    print(datetime.now().strftime("%H:%M:%S"), "Operation completed.")
     if delete_tempdata:
-        print("All GTFS data will now be removed from the tempdata folder.")
+        print(datetime.now().strftime("%H:%M:%S"), "All GTFS data will now be removed from the tempdata folder.")
         time.sleep(2)
         def remove_readonly(func, path, _):
             os.chmod(path, stat.S_IWRITE)
