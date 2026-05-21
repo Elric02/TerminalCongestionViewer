@@ -5,17 +5,14 @@ from datetime import datetime
 
 
 terminal = "linköping"
-date = "2026-03-12"
-providers = ["otraf"]
+date = "2022-03-22"
+providers = ["klt", "otraf"] # Attention: if there are several operators, they must be in the same order than in the filename!
 # Only used in hour_comparison()
 time_range = [5, 24] # second number not included
 
 
 def get_data():
-    temp_df_list = []
-    for provider in providers:
-        temp_df_list.append(pl.read_csv(f"output/vehiclepositions_terminal_{terminal}_{provider}_{date}.csv", schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8}))
-    df = pl.concat(temp_df_list, how="diagonal_relaxed")
+    df = pl.read_csv(f"output/vehiclepositions_terminal_{terminal}_{("_".join(providers))}_{date}.csv", schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8})
 
     '''
     # Select only data points for the route we want to examine
