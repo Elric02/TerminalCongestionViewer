@@ -155,7 +155,7 @@ def import_timeframe(provider, date, time_ranges, import_method="online", realti
             zip_ref.extractall(unzip_path)
         # Import the now-extracted TXT files as DataFrames
         trips = pl.read_csv(os.path.join(unzip_path, "trips.txt"), schema_overrides={'route_id': pl.Utf8})
-        routes = pl.read_csv(os.path.join(unzip_path, "routes.txt"), schema_overrides={'route_id': pl.Utf8})
+        routes = pl.read_csv(os.path.join(unzip_path, "routes.txt"), schema_overrides={'route_id': pl.Utf8, 'route_short_name': pl.Utf8})
         # Determine which hours will be needed to download from KoDa (real-time data)
         hours_to_download = []
         for time_range in time_ranges:
@@ -177,7 +177,7 @@ def import_timeframe(provider, date, time_ranges, import_method="online", realti
                 archive.extractall(path=import_path)
     elif import_method == "local":
         trips = pl.read_csv(os.path.join(staticdata_path, 'trips.txt'), schema_overrides={'route_id': pl.Utf8})
-        routes = pl.read_csv(os.path.join(staticdata_path, 'routes.txt'), schema_overrides={'route_id': pl.Utf8})
+        routes = pl.read_csv(os.path.join(staticdata_path, 'routes.txt'), schema_overrides={'route_id': pl.Utf8, 'route_short_name': pl.Utf8})
 
     total_df = pl.DataFrame()
     MessageType = gtfs_realtime_pb2.FeedMessage()
