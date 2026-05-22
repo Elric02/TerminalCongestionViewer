@@ -4,9 +4,9 @@ import numpy as np
 from datetime import datetime
 
 
-terminal = "linköping"
-date = "2022-03-22"
-providers = ["klt", "otraf"] # Attention: if there are several operators, they must be in the same order than in the filename!
+terminal = "bålsta"
+date = "2026-03-12"
+providers = ["ul", "sl"] # Attention: if there are several operators, they must be in the same order than in the filename!
 # Only used in hour_comparison()
 time_range = [5, 24] # second number not included
 
@@ -37,6 +37,9 @@ def format_data(df):
     for trip in trip_ids:
         i += 1
         temp_df = df.filter(pl.col("trip_id") == trip)
+        # Remove potential trajectories with less than 5 points, as they are not interesting for the distance measures and can cause errors
+        if temp_df.shape[0] < 5:
+            continue
         # Trajectory with points in their normal order
         trip_coords_list.append(temp_df.select(pl.col('longitude'), pl.col('latitude')).to_numpy())
         # Trajectory with points in the reversed order (i.e. the first point becomes the last)

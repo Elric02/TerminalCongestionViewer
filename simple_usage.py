@@ -5,14 +5,14 @@ import koda_lib
 # PARAMETERS
 #provider = "otraf"
 #terminal_coordinates = [(15.621, 58.416), (15.626, 58.416), (15.621, 58.419), (15.626, 58.419)]
-date = "2022-03-22"
+date = "2026-03-12"
 time_ranges = [
     [[5, 0, 0], [23, 59, 59]]
 ]
 # Note: if a terminal has several operators, add 1 line in the CSV per operator, with the same terminal name (only the coordinates for the first row will be used)
 terminal_coordinates_df = pl.read_csv('terminal_coords.csv')
 import_method = "local" # "online" or "local"
-delete_tempdata = True # Whether to delete all GTFS data from the tempdata folder after the operation is completed.
+delete_tempdata = False # Whether to delete all GTFS data from the tempdata folder after the operation is completed.
 
 # FUNCTIONS
 def process_terminals():
@@ -34,7 +34,7 @@ def process_terminals():
         total_df_list = []
         # Append to total_df_list the data for each operator
         for provider in providers:
-            total_df_list.append(koda_lib.import_timeframe(provider, date, time_ranges, import_method=import_method, modulo=1, terminal_coordinates=coords, export_type="none", export_name="", delete_tempdata=delete_tempdata))
+            total_df_list.append(koda_lib.import_timeframe(provider, date, time_ranges, import_method=import_method, staticdata_path="tempdata/static/"+provider, modulo=1, terminal_coordinates=coords, export_type="none", export_name="", delete_tempdata=delete_tempdata))
         total_df = pl.concat(total_df_list, how="diagonal_relaxed")
         total_df.write_csv("output/"+export_name)
 
