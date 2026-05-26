@@ -4,9 +4,9 @@ import numpy as np
 from datetime import datetime
 
 
-terminal = "bålsta"
-date = "2026-03-12"
-providers = ["ul", "sl"] # Attention: if there are several operators, they must be in the same order than in the filename!
+terminal = "linköping"
+date = "2022-03-22"
+providers = ["klt", "otraf"] # Attention: if there are several operators, they must be in the same order than in the filename!
 # Only used in hour_comparison()
 time_range = [5, 24] # second number not included
 
@@ -112,25 +112,47 @@ def try_measures(trip_ids, trip_coords_list, trip_coords_inv_list, trip_coords_r
     output.write_csv(f'output/pairwise_distances_{terminal}_{date}.csv')
 
 
-def hour_comparison(df):
+def comparison(df, comparison_type="routes"):
     results = []
-    for hour in range(time_range[0], time_range[1]):
-        start = datetime.timestamp(datetime.strptime(f"{date} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S"))
-        end = datetime.timestamp(datetime.strptime(f"{date} {hour:02d}:59:59", "%Y-%m-%d %H:%M:%S"))
-        df_hour = df.filter(
-            pl.col("timestamp")
-            .is_between(
-                start,
-                end,
-                closed="both",
+
+    if comparison_type == "hours":
+        for hour in range(time_range[0], time_range[1]):
+            start = datetime.timestamp(datetime.strptime(f"{date} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S"))
+            end = datetime.timestamp(datetime.strptime(f"{date} {hour:02d}:59:59", "%Y-%m-%d %H:%M:%S"))
+            df_hour = df.filter(
+                pl.col("timestamp")
+                .is_between(
+                    start,
+                    end,
+                    closed="both",
+                )
             )
-        )
-        print(f"{hour:02d}:00–{hour+1:02d}:00 => {len(df_hour)} rows")
-        _, trip_coords_list, _, _ = format_data(df_hour)
-        sspd = tdist.pdist(trip_coords_list, metric="sspd", verbose=True)
-        dfd = tdist.pdist(trip_coords_list, metric="discret_frechet", verbose=True)
-        results.append(quick_analysis(sspd, measure="sspd", name=f"{date} {hour:02d}h"))
-        results.append(quick_analysis(dfd, measure="dfd", name=f"{date} {hour:02d}h"))
+            print(f"{hour:02d}:00–{hour+1:02d}:00 => {len(df_hour)} rows")
+
+            _, trip_coords_list, _, _ = format_data(df_hour)
+            sspd = tdist.pdist(trip_coords_list, metric="sspd", verbose=True)
+            dfd = tdist.pdist(trip_coords_list, metric="discret_frechet", verbose=True)
+            results.append(quick_analysis(sspd, measure="sspd", name=f"{date} {hour:02d}h"))
+            results.append(quick_analysis(dfd, measure="dfd", name=f"{date} {hour:02d}h"))
+
+    if comparison_type == "routes":
+        # Remove values with no route
+        df = df.filter(pl.col("route_short_name") != -1)
+        route_values = df.select(pl.col("route_short_name")).unique().to_series().to_list()
+        for route in route_values:
+            df_route = df.filter(pl.col("route_short_name") == route)
+            print(f"route_short_name: {route}, nb of rows: {len(df_route)}")
+
+            trip_ids, trip_coords_list, _, _ = format_data(df_route)
+            if len(trip_ids) > 1:
+                sspd = tdist.pdist(trip_coords_list, metric="sspd", verbose=True)
+                dfd = tdist.pdist(trip_coords_list, metric="discret_frechet", verbose=True)
+                results.append(quick_analysis(sspd, measure="sspd", name=f"{date} route_{route}"))
+                results.append(quick_analysis(dfd, measure="dfd", name=f"{date} route_{route}"))
+            else:
+                print(f"Not enough trajectories for route {route} to calculate distance measures.")
+                results.append({"measure": "None", "name": f"{date} route_{route}", "len": 0, "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
+        
     results_df = pl.DataFrame(results)
     return results_df
 
@@ -140,5 +162,5 @@ data = get_data()
 #trip_ids, data_list, inv_list, rand_list = format_data(data)
 #try_measures(trip_ids, data_list, inv_list, rand_list)
 
-results_df = hour_comparison(data)
-results_df.write_csv(f'output/hourly_comparison_{terminal}_{date}.csv')
+results_df = comparison(data, comparison_type="routes") # comparison_type is either "routes" or "hours"
+results_df.write_csv(f'output/uncertainty_comparison_{terminal}_{date}.csv')
