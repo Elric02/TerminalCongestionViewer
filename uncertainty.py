@@ -141,17 +141,20 @@ def comparison(df, comparison_type="routes"):
         route_values = df.select(pl.col("route_short_name")).unique().to_series().to_list()
         for route in route_values:
             df_route = df.filter(pl.col("route_short_name") == route)
-            print(f"route_short_name: {route}, nb of rows: {len(df_route)}")
+            direction_values = df_route.select(pl.col("direction_id")).unique().to_series().to_list()
+            for direction in direction_values:
+                df_direction = df_route.filter(pl.col("direction_id") == direction)
+                print(f"route_short_name: {route}, direction_id: {direction}, nb of rows: {len(df_direction)}")
 
-            trip_ids, trip_coords_list, _, _ = format_data(df_route)
-            if len(trip_ids) > 1:
-                sspd = tdist.pdist(trip_coords_list, metric="sspd", verbose=True)
-                dfd = tdist.pdist(trip_coords_list, metric="discret_frechet", verbose=True)
-                results.append(quick_analysis(sspd, measure="sspd", name=f"{date} route_{route}"))
-                results.append(quick_analysis(dfd, measure="dfd", name=f"{date} route_{route}"))
-            else:
-                print(f"Not enough trajectories for route {route} to calculate distance measures.")
-                results.append({"measure": "None", "name": f"{date} route_{route}", "len": 0, "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
+                trip_ids, trip_coords_list, _, _ = format_data(df_direction)
+                if len(trip_ids) > 1:
+                    sspd = tdist.pdist(trip_coords_list, metric="sspd", verbose=True)
+                    dfd = tdist.pdist(trip_coords_list, metric="discret_frechet", verbose=True)
+                    results.append(quick_analysis(sspd, measure="sspd", name=f"{date} route_{route}_dir_{direction}"))
+                    results.append(quick_analysis(dfd, measure="dfd", name=f"{date} route_{route}_dir_{direction}"))
+                else:
+                    print(f"Not enough trajectories for route {route} to calculate distance measures.")
+                    results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "len": 0, "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
         
     results_df = pl.DataFrame(results)
     return results_df
