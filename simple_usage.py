@@ -5,13 +5,13 @@ import koda_lib
 # PARAMETERS
 #provider = "otraf"
 #terminal_coordinates = [(15.621, 58.416), (15.626, 58.416), (15.621, 58.419), (15.626, 58.419)]
-date = "2026-03-12"
+date = "2026-05-25"
 time_ranges = [
     [[6, 0, 0], [8, 59, 59]]
 ]
 # Note: if a terminal has several operators, add 1 line in the CSV per operator, with the same terminal name (only the coordinates for the first row will be used)
 terminal_coordinates_df = pl.read_csv('terminal_coords.csv')
-import_method = "local" # "online" or "local"
+import_method = "online" # "online" or "local"
 delete_tempdata = True # Whether to delete all GTFS data from the tempdata folder after the operation is completed.
 
 # FUNCTIONS
