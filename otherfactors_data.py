@@ -28,12 +28,8 @@ import libs.ionex as ionex
 # Currently we only use GPS data, the other constellations create an error on gnss-lib / georinex trying to load the data
 
 #TODO
-# Ionospheric delay
-# Tropospheric delay
-# Remove get_visible_satellites_count
 # Implement other source of altitude (should be doable via lantmateriet or https://en-gb.topographic-map.com/map-v1zs/Sweden/)
 # Give the option to use Swepos instead https://www.lantmateriet.se/en/geodata/gps-geodesy-and-swepos/lantmateriets-doi-objects/swepos-rinex-data/?utm_source=chatgpt.com
-# Think about how to handle the login process (_netrc) for the future
 
 
 VIS_THRESH_DEG = 12 # Below satellite visibility threshold (in degrees), default is 12
@@ -96,57 +92,6 @@ def get_alt(lat, lon):
             if elevation_dict[f"{lat}/{lon}"] == "": raise RuntimeError("No elevation value in local file for provided coordinates")
             elevation = elevation_dict[f"{lat}/{lon}"]
     return elevation
-
-
-def get_visible_satellites_count(tle_path, lat, lon):
-    satellites = []
-    with open(tle_path) as f:
-        lines = f.readlines()
-        for i in range(0, len(lines), 3):
-            name = lines[i].strip()
-            l1 = lines[i+1].strip()
-            l2 = lines[i+2].strip()
-            satellites.append(api.EarthSatellite(l1, l2, name))
-
-    ts = api.load.timescale()
-    t = ts.utc(*DESIRED_DATETIME)
-
-    observer = api.wgs84.latlon(
-        latitude_degrees=lat,
-        longitude_degrees=lon,
-        elevation_m=get_alt(lat, lon)
-    )
-    visible_count = 0
-
-    # Contains the sat occurrence that is the closest in time to the desired date/time
-    best_sat_occ = {}
-    for sat_occ in satellites:
-        # Keep only if closer in time
-        try:
-            current_best_time_diff = abs(best_sat_occ[sat_occ.name].epoch - t)
-            sat_time_diff = abs(sat_occ.epoch - t)
-            if sat_time_diff < current_best_time_diff:
-                best_sat_occ[sat_occ.name] = sat_occ
-            else:
-                continue
-        except KeyError:
-            best_sat_occ[sat_occ.name] = sat_occ
-
-    for sat_name in best_sat_occ:
-        sat = best_sat_occ[sat_name]
-        #print(sat)
-        difference = sat - observer
-        topocentric = difference.at(t)
-
-        alt, az, distance = topocentric.altaz()
-        #print(f"alt {alt}, az {az}, distance {distance}")
-
-        if alt.degrees >= VIS_THRESH_DEG:
-            #print("Line-of-sight detected")
-            visible_count += 1
-
-    print(f"Visible satellites: {visible_count} out of {len(best_sat_occ)}")
-    return visible_count
 
 
 def get_cddis_data(constellation, type):
@@ -291,9 +236,6 @@ def main():
     locations_df = pl.read_csv(LOCATIONS_CSV_PATH)
     for location in locations_df.iter_rows(named=True):
         print("LOCATION:", location["Name"])
-        for tle_path in SATELLITE_TLE_PATH:
-            print("Getting visible satellites for the following TLE file:", tle_path)
-            visible_count = get_visible_satellites_count(tle_path, location["Lat"], location["Lon"])
         #constellations = [["Beidou", "f", "CN"], ["GLONASS", "g", "RN"], ["Galileo", "l", "EN"], ["GPS", "n", "GN"]]
         constellations = [["GPS", "n", "GN"]]
         for constellation in constellations:
