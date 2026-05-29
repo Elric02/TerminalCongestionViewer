@@ -5,22 +5,22 @@ from datetime import datetime
 
 
 terminal = "linköping"
-date = "2022-03-22"
-providers = ["klt", "otraf"] # Attention: if there are several operators, they must be in the same order than in the filename!
+date = "2025-09-16"
+providers = ["otraf"] # Attention: if there are several operators, they must be in the same order than in the filename!
 # Only used in hour_comparison()
 time_range = [5, 24] # second number not included
 
 
 def get_data():
-    df = pl.read_csv(f"output/vehiclepositions_terminal_{terminal}_{("_".join(providers))}_{date}.csv", schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8})
+    df = pl.read_csv(f"output/archives/vehiclepositions_terminal_{terminal}_{date}.csv", schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8})
 
-    '''
+
     # Select only data points for the route we want to examine
     df = df.filter(pl.col("route_short_name") == 1)
     df = df.filter(pl.col("direction_id") == 1)
     # Remove incomplete paths / outliers
     df = df.filter(pl.col("trip_id") != "55700000076548069")
-    '''
+
     return df
 
 def format_data(df):
@@ -56,7 +56,8 @@ def quick_analysis(data, measure="", name=""):
 
 
 # Just bits of code I used to try out the different measures and see the differences
-def try_measures(trip_ids, trip_coords_list, trip_coords_inv_list, trip_coords_rand_list):
+def try_measures(data):
+    trip_ids, trip_coords_list, trip_coords_inv_list, trip_coords_rand_list = format_data(data)
     #print(trip_coords_list[0])
     #print(trip_coords_inv_list[0])
     #print(trip_coords_rand_list[0])
@@ -76,18 +77,33 @@ def try_measures(trip_ids, trip_coords_list, trip_coords_inv_list, trip_coords_r
     print("-- SSPD (randomized) --")
     #print(sspd_rand)
     print(quick_analysis(sspd_rand))
-    edr = tdist.pdist(trip_coords_list, metric="edr", eps=0.0003)
-    edr_inv = tdist.pdist(trip_coords_inv_list, metric="edr", eps=0.0003)
-    edr_rand = tdist.pdist(trip_coords_rand_list, metric="edr", eps=0.0003)
-    print("-- EDR --")
-    #print(edr)
-    print(quick_analysis(edr))
-    print("-- EDR (inverted) --")
-    #print(edr_inv)
-    print(quick_analysis(edr_inv))
-    print("-- EDR (randomized) --")
-    #print(edr_rand)
-    print(quick_analysis(edr_rand))
+    all_points = np.vstack(trip_coords_list)
+    g = np.mean(all_points, axis=0)
+    print(f"ERP gap penalty g: {g}")
+    erp = tdist.pdist(trip_coords_list, metric="erp", type_d="spherical", g=g)
+    erp_inv = tdist.pdist(trip_coords_inv_list, metric="erp", type_d="spherical", g=g)
+    erp_rand = tdist.pdist(trip_coords_rand_list, metric="erp", type_d="spherical", g=g)
+    print("-- ERP --")
+    print(erp)
+    print(quick_analysis(erp))
+    print("-- ERP (inverted) --")
+    print(erp_inv)
+    print(quick_analysis(erp_inv))
+    print("-- ERP (randomized) --")
+    print(erp_rand)
+    print(quick_analysis(erp_rand))
+    dtw = tdist.pdist(trip_coords_list, metric="dtw")
+    dtw_inv = tdist.pdist(trip_coords_inv_list, metric="dtw")
+    dtw_rand = tdist.pdist(trip_coords_rand_list, metric="dtw")
+    print("-- DTW --")
+    print(dtw)
+    print(quick_analysis(dtw))
+    print("-- DTW (inverted) --")
+    print(dtw_inv)
+    print(quick_analysis(dtw_inv))
+    print("-- DTW (randomized) --")
+    print(dtw_rand)
+    print(quick_analysis(dtw_rand))
     dfd = tdist.pdist(trip_coords_list, metric="discret_frechet")
     dfd_inv = tdist.pdist(trip_coords_inv_list, metric="discret_frechet")
     dfd_rand = tdist.pdist(trip_coords_rand_list, metric="discret_frechet")
@@ -105,7 +121,8 @@ def try_measures(trip_ids, trip_coords_list, trip_coords_inv_list, trip_coords_r
             "traj1": [trip_ids[i] for i in range(len(trip_ids)) for _ in range(i+1, len(trip_ids))],
             "traj2": [trip_ids[j] for i in range(len(trip_ids)) for j in range(i+1, len(trip_ids))],
             "sspd": sspd,
-            "edr": edr,
+            "erp": erp,
+            "dtw": dtw,
             "dfd": dfd,
         }
     )
@@ -162,8 +179,7 @@ def comparison(df, comparison_type="routes"):
 
 data = get_data()
 
-#trip_ids, data_list, inv_list, rand_list = format_data(data)
-#try_measures(trip_ids, data_list, inv_list, rand_list)
+try_measures(data)
 
-results_df = comparison(data, comparison_type="routes") # comparison_type is either "routes" or "hours"
-results_df.write_csv(f'output/uncertainty_comparison_{terminal}_{date}.csv')
+#results_df = comparison(data, comparison_type="routes") # comparison_type is either "routes" or "hours"
+#results_df.write_csv(f'output/uncertainty_comparison_{terminal}_{date}.csv')
