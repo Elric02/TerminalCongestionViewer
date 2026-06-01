@@ -5,22 +5,23 @@ from datetime import datetime
 
 
 terminal = "linköping"
-date = "2025-09-16"
+date = "2024-09-30"
 providers = ["otraf"] # Attention: if there are several operators, they must be in the same order than in the filename!
 # Only used in hour_comparison()
-time_range = [5, 24] # second number not included
+time_range = [6, 8] # second number not included (i.e. [6, 8] -> from 6:00:00 to 7:59:59)
 
 
 def get_data():
-    df = pl.read_csv(f"output/archives/vehiclepositions_terminal_{terminal}_{date}.csv", schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8})
+    df = pl.read_csv(f"output/vehiclepositions_terminal_{terminal}_{("_".join(providers))}_{date}.csv", schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8})
 
 
+    '''
     # Select only data points for the route we want to examine
     df = df.filter(pl.col("route_short_name") == 1)
     df = df.filter(pl.col("direction_id") == 1)
     # Remove incomplete paths / outliers
     df = df.filter(pl.col("trip_id") != "55700000076548069")
-
+    '''
     return df
 
 def format_data(df):
@@ -179,7 +180,7 @@ def comparison(df, comparison_type="routes"):
 
 data = get_data()
 
-try_measures(data)
+#try_measures(data)
 
-#results_df = comparison(data, comparison_type="routes") # comparison_type is either "routes" or "hours"
-#results_df.write_csv(f'output/uncertainty_comparison_{terminal}_{date}.csv')
+results_df = comparison(data, comparison_type="routes") # comparison_type is either "routes" or "hours"
+results_df.write_csv(f'output/uncertainty_comparison_{terminal}_{date}.csv')
