@@ -1,3 +1,5 @@
 koda_api_key.txt
 google_api_key.txt
 __pycache__/
+.vscode/
+*.code-workspace
