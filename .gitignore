@@ -1,5 +1,6 @@
 koda_api_key.txt
 google_api_key.txt
+geotorget_creds.txt
 data/
 __pycache__/
 .vscode/

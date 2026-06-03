@@ -12,6 +12,7 @@ import numpy as np
 import warnings
 import libs.ionex as ionex
 import pandas as pd
+from pyproj import Transformer
 
 
 #NOTES
@@ -37,8 +38,9 @@ import pandas as pd
 VIS_THRESH_DEG = 12 # Below satellite visibility threshold (in degrees), default is 12
 DESIRED_DATETIME = [2024, 9, 13, 7, 0, 0] # Date and time to study. Format: [year, month, day, hours, minutes, seconds]
 
-ELEVATION_API = "google" # "open" if you want to use open-elevation.com, "google" for Google Elevation, "local" for the local file
+ELEVATION_API = "geotorget" # "open" if you want to use open-elevation.com, "google" for Google Elevation (requires API key), "geotorget" for Lantmäteriet/Geotorget (requires account credentials), "local" for the local file
 GOOGLE_API_KEY_PATH = "google_api_key.txt" # Path to the key for the Google API usage. Can be ignored if Google is unused
+GEOTORGET_CREDS_PATH = "geotorget_creds.txt" # Path to the file containing the Geotorget credentials (username and password). Format: username in the first line, password in the second line.
 LOCAL_ELEVATION_PATH = "tempdata/elevation_data_archive.txt" # Path to the local elevation data archive file (txt). Leave blank if you don't want one
 LOCAL_RINEX_PATH = "tempdata/rinex_nav" # Path which the RINEX files will be saved in
 
@@ -53,13 +55,29 @@ SATELLITE_TLE_PATH = [ # List of paths to the TLE files of satellites. Each file
 
 # Return altitude based on provided coordinates
 def get_alt(lat, lon):
-    def call_elevation_api(url, params):
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-        elevation_data = response.json()
-        if "results" not in elevation_data or len(elevation_data["results"]) == 0:
-            raise RuntimeError("No elevation data returned")
-        elevation = int(elevation_data["results"][0]["elevation"])
+    def call_elevation_api(url, params, auth=None):
+        if ELEVATION_API == "geotorget":
+            # WGS84 → SWEREF 99 TM (EPSG:3006), the only CRS the API accepts for simple GET queries
+            _transformer = Transformer.from_crs("EPSG:4326", "EPSG:3006", always_xy=True)
+            easting, northing = _transformer.transform(lon, lat)
+            params = {"srid": 3006, "e": round(easting, 2), "n": round(northing, 2)}
+            resp = requests.get(url, params=params, auth=auth, timeout=15)
+            resp.raise_for_status()
+            feature = resp.json()
+            # The elevation is the third coordinate (Z) of the returned GeoJSON Point
+            coords = feature["geometry"]["coordinates"]
+            elevation = coords[2]
+            nodata = feature.get("properties", {}).get("nodatavalue", -9999)
+            if elevation == nodata:
+                raise ValueError("No elevation data at this location (NoData). The point may be over water or outside Sweden's coverage.")
+            elevation = float(elevation)
+        else:
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            elevation_data = response.json()
+            if "results" not in elevation_data or len(elevation_data["results"]) == 0:
+                raise RuntimeError("No elevation data returned")
+            elevation = int(elevation_data["results"][0]["elevation"])
         print(f"Returned altitude: {elevation}m")
         # Local file creation/update, skip if we don't want a local file
         if LOCAL_ELEVATION_PATH != "":
@@ -87,6 +105,12 @@ def get_alt(lat, lon):
         url = "https://maps.googleapis.com/maps/api/elevation/json"
         params = {"locations": f"{lat},{lon}", "key": open(GOOGLE_API_KEY_PATH, "r").read()}
         elevation = call_elevation_api(url, params)
+    elif ELEVATION_API == "geotorget":
+        url = "https://api.lantmateriet.se/distribution/produkter/markhojd/v1/hojd"
+        params = {"locations": f"{lat},{lon}"}
+        with open(GEOTORGET_CREDS_PATH, "r") as f:
+            username, password = f.read().strip().splitlines()
+        elevation = call_elevation_api(url, params, (username, password))
     elif ELEVATION_API == "local":
         if LOCAL_ELEVATION_PATH == "": raise RuntimeError("No LOCAL_ELEVATION_PATH provided")
         with open(LOCAL_ELEVATION_PATH, 'r') as f:
@@ -148,7 +172,6 @@ def get_cddis_data(constellation, type):
         return navdata
 
 
-def get_hdop(timestamp, lat, lon, alt, constellation, navdata):
 def get_hdop(lat, lon, constellation, navdata, timestamp=None, alt=None):
     timestamp = datetime(*DESIRED_DATETIME).timestamp()
     alt = get_alt(lat, lon)
@@ -248,6 +271,8 @@ def get_iono_delay2():
 
 
 def main():
+    # Rework locations, I want the terminal locations rather than the weather stations
+    '''
     locations_df = pl.read_csv(LOCATIONS_CSV_PATH)
     for location in locations_df.iter_rows(named=True):
         print("LOCATION:", location["Name"])
@@ -257,7 +282,16 @@ def main():
             navdata = get_cddis_data(constellation, "RINEX")
             get_hdop(location["Lat"], location["Lon"], constellation, navdata)
             #get_iono_delay(navdata)
-            get_iono_delay2(navdata)
+            #get_iono_delay2(navdata)
+    '''
+    COORDINATES = [58.4170492, 15.6238495] # Coordinates for Linköping Resecentrum in EPSG:4326/WGS84 (lat, lon)
+    print("Getting HDOP and iono delay for coordinates:", COORDINATES)
+    constellations = [["GPS", "n", "GN"]]
+    for constellation in constellations:
+            navdata = get_cddis_data(constellation, "RINEX")
+            get_hdop(COORDINATES[0], COORDINATES[1], constellation, navdata)
+            #get_iono_delay(navdata)
+            #get_iono_delay2(navdata)
 
 if __name__ == "__main__":
     main()
