@@ -30,12 +30,13 @@ import libs.ionex as ionex
 #TODO
 # Implement other source of altitude (should be doable via lantmateriet or https://en-gb.topographic-map.com/map-v1zs/Sweden/)
 # Give the option to use Swepos instead https://www.lantmateriet.se/en/geodata/gps-geodesy-and-swepos/lantmateriets-doi-objects/swepos-rinex-data/?utm_source=chatgpt.com
+# Take the closest IGS station (https://network.igs.org/)
 
 
 VIS_THRESH_DEG = 12 # Below satellite visibility threshold (in degrees), default is 12
-DESIRED_DATETIME = [2024, 5, 12, 17, 0, 0] # Date and time to study. Format: [year, month, day, hours, minutes, seconds]
+DESIRED_DATETIME = [2024, 9, 13, 7, 0, 0] # Date and time to study. Format: [year, month, day, hours, minutes, seconds]
 
-ELEVATION_API = "local" # "open" if you want to use open-elevation.com, "google" for Google Elevation, "local" for the local file
+ELEVATION_API = "google" # "open" if you want to use open-elevation.com, "google" for Google Elevation, "local" for the local file
 GOOGLE_API_KEY_PATH = "google_api_key.txt" # Path to the key for the Google API usage. Can be ignored if Google is unused
 LOCAL_ELEVATION_PATH = "tempdata/elevation_data_archive.txt" # Path to the local elevation data archive file (txt). Leave blank if you don't want one
 LOCAL_RINEX_PATH = "tempdata/rinex_nav" # Path which the RINEX files will be saved in
@@ -107,7 +108,7 @@ def get_cddis_data(constellation, type):
 
     if type == "RINEX":
         # Daily broadcast navigation file
-        filename = f"KIR800SWE_R_{year}{day_str}0000_01D_{constellation[2]}.rnx.gz"
+        filename = f"ONS100SWE_R_{year}{day_str}0000_01D_{constellation[2]}.rnx.gz"
         url = (
             f"https://cddis.nasa.gov/archive/gnss/data/daily/"
             f"{year}/{day_str}/{yy}{constellation[1]}/{filename}"
@@ -232,6 +233,17 @@ def get_iono_delay(timestamp, lat, lon, alt, navdata):
     print("Tropospheric delay (m):", round(tropo, 3))
 
 
+def get_iono_delay2():
+    ds = ionex.read_ionex('C:/Users/ElricM/OneDrive - VTI/Thesis/TerminalCongestionViewer/TerminalCongestionViewer/tempdata/ionex/ESA0OPSRAP_20251620000_01D_01H_GIM.INX')
+    print(ds)
+    ionex.plot_tec_map(ds.tec.isel(time=0))
+    plt.show()
+
+    # Plot the time series for a specific latitude and longitude
+    ionex.plot_time_series(ds, lat=68.4418, lon=22.4435, variable='tec')
+    plt.show()
+
+
 def main():
     locations_df = pl.read_csv(LOCATIONS_CSV_PATH)
     for location in locations_df.iter_rows(named=True):
@@ -241,7 +253,8 @@ def main():
         for constellation in constellations:
             navdata = get_cddis_data(constellation, "RINEX")
             get_hdop(location["Lat"], location["Lon"], constellation, navdata)
-            get_iono_delay(navdata)
+            #get_iono_delay(navdata)
+            get_iono_delay2(navdata)
 
 if __name__ == "__main__":
     main()
