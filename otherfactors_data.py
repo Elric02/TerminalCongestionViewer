@@ -11,6 +11,7 @@ import gzip
 import numpy as np
 import warnings
 import libs.ionex as ionex
+import pandas as pd
 
 
 #NOTES
@@ -141,12 +142,14 @@ def get_cddis_data(constellation, type):
     # Suppress unused warning
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=FutureWarning)
+        pd.options.future.infer_string = False # disable new StringDtype inference, else loading Rinex data causes a crash
         # Parse the navigation file
         navdata = glp.parsers.rinex_nav.RinexNav(local_file)
         return navdata
 
 
 def get_hdop(timestamp, lat, lon, alt, constellation, navdata):
+def get_hdop(lat, lon, constellation, navdata, timestamp=None, alt=None):
     timestamp = datetime(*DESIRED_DATETIME).timestamp()
     alt = get_alt(lat, lon)
 
