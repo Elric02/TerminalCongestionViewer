@@ -5,7 +5,8 @@ import gnss_lib_py as glp
 from skyfield import api
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import shutil
 import gzip
 import numpy as np
@@ -13,6 +14,7 @@ import warnings
 import libs.ionex as ionex
 import pandas as pd
 from pyproj import Transformer
+import matplotlib.pyplot as plt
 
 
 #NOTES
@@ -36,13 +38,15 @@ from pyproj import Transformer
 
 
 VIS_THRESH_DEG = 12 # Below satellite visibility threshold (in degrees), default is 12
-DESIRED_DATETIME = [2024, 9, 13, 7, 0, 0] # Date and time to study. Format: [year, month, day, hours, minutes, seconds]
+DESIRED_DATETIME = [2024, 9, 13, 7, 0, 0] # Date and time to study in Sweden local time. Format: [year, month, day, hours, minutes, seconds]
+DESIRED_TIMEZONE = ZoneInfo("Europe/Stockholm") # Default: ZoneInfo("Europe/Stockholm")
 
 ELEVATION_API = "geotorget" # "open" if you want to use open-elevation.com, "google" for Google Elevation (requires API key), "geotorget" for Lantmäteriet/Geotorget (requires account credentials), "local" for the local file
 GOOGLE_API_KEY_PATH = "google_api_key.txt" # Path to the key for the Google API usage. Can be ignored if Google is unused
 GEOTORGET_CREDS_PATH = "geotorget_creds.txt" # Path to the file containing the Geotorget credentials (username and password). Format: username in the first line, password in the second line.
 LOCAL_ELEVATION_PATH = "tempdata/elevation_data_archive.txt" # Path to the local elevation data archive file (txt). Leave blank if you don't want one
 LOCAL_RINEX_PATH = "tempdata/rinex_nav" # Path which the RINEX files will be saved in
+LOCAL_IONEX_PATH = "tempdata/ionex" # Path which the IONEX files will be saved in
 
 LOCATIONS_CSV_PATH = "weather_stations.csv" # Path to the CSV containing the list of locations to study, with their coordinates
 SATELLITE_TLE_PATH = [ # List of paths to the TLE files of satellites. Each file is treated separately. These have to be downloaded separately and must cover at least the desired date
@@ -52,6 +56,11 @@ SATELLITE_TLE_PATH = [ # List of paths to the TLE files of satellites. Each file
     "../data/celestrak/beidou_may2024/combined.txt"
     ]
 
+
+def get_desired_datetime_local():
+    return datetime(*DESIRED_DATETIME, tzinfo=DESIRED_TIMEZONE)
+def get_desired_datetime_utc():
+    return get_desired_datetime_local().astimezone(timezone.utc)
 
 # Return altitude based on provided coordinates
 def get_alt(lat, lon):
@@ -121,9 +130,7 @@ def get_alt(lat, lon):
 
 
 def get_cddis_data(constellation, type):
-    epoch = datetime(*DESIRED_DATETIME)
-    download_dir = LOCAL_RINEX_PATH
-    os.makedirs(download_dir, exist_ok=True)
+    epoch = get_desired_datetime_utc()
 
     # Build CDDIS URL and paths
     year = epoch.year
@@ -132,6 +139,8 @@ def get_cddis_data(constellation, type):
     day_str = f"{epoch.timetuple().tm_yday:03d}"
 
     if type == "RINEX":
+        download_dir = LOCAL_RINEX_PATH
+        os.makedirs(download_dir, exist_ok=True)
         # Daily broadcast navigation file
         filename = f"ONS100SWE_R_{year}{day_str}0000_01D_{constellation[2]}.rnx.gz"
         url = (
@@ -139,6 +148,8 @@ def get_cddis_data(constellation, type):
             f"{year}/{day_str}/{yy}{constellation[1]}/{filename}"
         )
     elif type == "IONEX":
+        download_dir = LOCAL_IONEX_PATH
+        os.makedirs(download_dir, exist_ok=True)
         # Daily TEC map file from ESA
         filename = f"ESA0OPSRAP_{year}{day_str}0000_01D_01H_GIM.INX.gz"
         url = (
@@ -168,12 +179,22 @@ def get_cddis_data(constellation, type):
         warnings.filterwarnings("ignore", category=FutureWarning)
         pd.options.future.infer_string = False # disable new StringDtype inference, else loading Rinex data causes a crash
         # Parse the navigation file
-        navdata = glp.parsers.rinex_nav.RinexNav(local_file)
-        return navdata
+        if type == "RINEX":
+            navdata = glp.parsers.rinex_nav.RinexNav(local_file)
+            return navdata
+        elif type == "IONEX":
+            ionodata = ionex.read_ionex(local_file)
+            return ionodata
 
 
 def get_hdop(lat, lon, constellation, navdata, timestamp=None, alt=None):
-    timestamp = datetime(*DESIRED_DATETIME).timestamp()
+    if timestamp is None:
+        timestamp = get_desired_datetime_utc()
+    elif isinstance(timestamp, datetime):
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=DESIRED_TIMEZONE)
+        timestamp = timestamp.astimezone(timezone.utc)
+    timestamp = timestamp.timestamp()
     alt = get_alt(lat, lon)
 
     # Compute satellite positions
@@ -212,62 +233,17 @@ def get_hdop(lat, lon, constellation, navdata, timestamp=None, alt=None):
     print("HDOP:", round(HDOP, 3))
 
 
-# ACTUALLY, the iono and tropo delays are per-satellite. Find how to get a single value
-# Iono: Vertical Total Electron Content (VTEC)?
-# Tropo: Zenith Tropospheric Delay (ZTD)?
-
-def get_iono_delay(timestamp, lat, lon, alt, navdata):
-    timestamp = datetime(*DESIRED_DATETIME).timestamp()
-
-    # Compute satellite positions
-    sat_states = glp.utils.sv_models.find_sv_states(timestamp, navdata)
-    print(type(sat_states))
-    print(navdata.iono_params)
-    alpha = [1.6764e-08, 0.0, -1.1921e-07, 0.0]
-    beta = [9.0112e4, 0.0, -1.3107e5, 0.0]
-    
-    c = 299792458.0
-    psi = 0.0137 / (elev / np.pi + 0.11) - 0.022
-
-    phi_i = lat / np.pi + psi * np.cos(az)
-    phi_i = np.clip(phi_i, -0.416, 0.416)
-
-    lam_i = lon / np.pi + psi * np.sin(az) / np.cos(phi_i * np.pi)
-
-    phi_m = phi_i + 0.064 * np.cos((lam_i - 1.617) * np.pi)
-
-    t_local = (43200 * lam_i + t) % 86400
-
-    amp = alpha[0] + alpha[1]*phi_m + alpha[2]*phi_m**2 + alpha[3]*phi_m**3
-    per = beta[0] + beta[1]*phi_m + beta[2]*phi_m**2 + beta[3]*phi_m**3
-
-    amp = max(0, amp)
-    per = max(72000, per)
-
-    x = 2 * np.pi * (t_local - 50400) / per
-
-    if abs(x) < 1.57:
-        delay = 5e-9 + amp * (1 - x**2/2 + x**4/24)
-    else:
-        delay = 5e-9
-
-    f = 1 + 16 * (0.53 - elev/np.pi)**3
-
-    return c * f * delay
-    print(len(output))
-    print("Ionospheric delay (m):", round(iono, 3))
-    print("Tropospheric delay (m):", round(tropo, 3))
-
-
-def get_iono_delay2():
-    ds = ionex.read_ionex('C:/Users/ElricM/OneDrive - VTI/Thesis/TerminalCongestionViewer/TerminalCongestionViewer/tempdata/ionex/ESA0OPSRAP_20251620000_01D_01H_GIM.INX')
-    print(ds)
-    ionex.plot_tec_map(ds.tec.isel(time=0))
-    plt.show()
-
-    # Plot the time series for a specific latitude and longitude
-    ionex.plot_time_series(ds, lat=68.4418, lon=22.4435, variable='tec')
-    plt.show()
+def get_iono_delay(ionodata, lat, lon, timestamp=None):
+    if timestamp is None:
+        timestamp = get_desired_datetime_local()
+    elif isinstance(timestamp, datetime):
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=DESIRED_TIMEZONE)
+    orig_timestamp = timestamp
+    timestamp = timestamp.astimezone(timezone.utc)
+    vtec_value = ionex.get_vtec_value(ionodata, lat, lon, timestamp, variable='tec')
+    print(f"VTEC at ({lat}, {lon}) / {orig_timestamp.isoformat()} local time, {timestamp.isoformat()} UTC / {vtec_value} TECU")
+    return vtec_value
 
 
 def main():
@@ -288,10 +264,10 @@ def main():
     print("Getting HDOP and iono delay for coordinates:", COORDINATES)
     constellations = [["GPS", "n", "GN"]]
     for constellation in constellations:
-            navdata = get_cddis_data(constellation, "RINEX")
-            get_hdop(COORDINATES[0], COORDINATES[1], constellation, navdata)
-            #get_iono_delay(navdata)
-            #get_iono_delay2(navdata)
+        navdata = get_cddis_data(constellation, "RINEX")
+        ionodata = get_cddis_data(constellation, "IONEX")
+        get_hdop(COORDINATES[0], COORDINATES[1], constellation, navdata)
+        vtec = get_iono_delay(ionodata, COORDINATES[0], COORDINATES[1], get_desired_datetime_local())
 
 if __name__ == "__main__":
     main()

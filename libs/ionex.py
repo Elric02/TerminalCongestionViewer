@@ -4,7 +4,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import xarray as xr
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import cartopy.crs as ccrs
@@ -274,6 +274,32 @@ def plot_time_series(ds, lat, lon, variable='tec'):
     plt.legend()
     plt.grid()
     #plt.show()
+
+
+def get_vtec_value(ds, lat, lon, time, variable='tec'):
+    """
+    Return a single VTEC value for a given coordinate and time.
+
+    Parameters:
+    ds (xr.Dataset): IONEX dataset returned by read_ionex().
+    lat (float): Latitude in degrees.
+    lon (float): Longitude in degrees.
+    time (datetime or str): Desired UTC timestamp.
+    variable (str): 'tec' or 'rms'. Defaults to 'tec'.
+
+    Returns:
+    float: Nearest VTEC value in TECU.
+    """
+    if isinstance(time, str):
+        time = datetime.fromisoformat(time)
+
+    if time.tzinfo is not None:
+        time = time.astimezone(timezone.utc).replace(tzinfo=None)
+
+    value = ds[variable].sel(time=time, method='nearest')
+    value = value.sel(latitude=lat, method='nearest')
+    value = value.sel(longitude=lon, method='nearest')
+    return float(value.item())
 
 # Example usage:
 # ds = read_ionex('path_to_your_file.ionex')
