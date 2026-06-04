@@ -126,6 +126,7 @@ def plot_results(df_all):
         data = [row["Value"] for row in grouped.iter_rows(named=True)]
         stations_csv = pl.read_csv("weather_stations.csv")
         labels = [stations_csv.filter(pl.col("ID") == row["StationID"])["Station"][0] for row in grouped.iter_rows(named=True)]
+        labels = [stations_csv.filter(pl.col("ID") == row["StationID"])["Name"][0] for row in grouped.iter_rows(named=True)]
 
         plt.subplot(2, 2, i+1)
         plt.violinplot(data, showmeans=True, showmedians=True)
