@@ -4,12 +4,12 @@ import polars as pl
 import matplotlib.pyplot as plt
 
 # Date(s) to fetch, output CSV path
-ENTIRE_YEAR = True # True to use TARGET_YEAR, False to use TARGET_DATE
+ENTIRE_YEAR = True # True to use TARGET_YEAR (if you want data for a whole year), False to use TARGET_DATE (if you want data for a specific date)
 TARGET_DATE = "2025-05-02" # "YYYY-MM-DD"
 TARGET_YEAR = "2024" # "YYYY"
-DESIRED_STATIONS = [192840, 166910, 162860, 140460, 135460, 107420, 103100, 98230, 85240, 71420, 66110, 52240] # List of the IDs of the stations to include in the output. Leave empty if all stations desired
 METEO_PARAMS = ["1", "6", "7", "9"] # List of the desired parameters to observe (e.g. "7" is the amount ot precipitation aggregated per hour). Source: https://opendata.smhi.se/metobs/resources/parameter#available-meterology-parameters
-DOWNLOAD_DATA = False # True if data to be requested to SMHI, False if CSVs are already there
+DOWNLOAD_DATA = True # True if data to be requested to SMHI, False if CSVs are already there
+STATIONS_LIST_CSV_PATH = "weather_stations.csv" # CSV with the list of stations to fetch data for
 
 # Path for the output CSV containing raw data from SMHI
 OUTPUT_CSV_RAW = lambda param : f"output/smhi_{param}_{TARGET_YEAR}.csv" if ENTIRE_YEAR else f"output/smhi_{param}_{TARGET_DATE}.csv"
@@ -44,8 +44,9 @@ def get_all_stations(stations_url):
 def fetch_weather_for_date(param, station_meta, obs_url_lambda):
     df = pl.DataFrame(schema={"Date": pl.Utf8, "Time": pl.Utf8, "Value": pl.Float32, "Quality": pl.Utf8, "StationID": pl.Utf8, "StationLatitude": pl.Float64, "StationLongitude": pl.Float64})
     i = 0
+    desired_stations = pl.read_csv(STATIONS_LIST_CSV_PATH)["ID"].to_list()
     for station_id in station_meta.keys():
-        if len(DESIRED_STATIONS) > 0 and int(station_id) in DESIRED_STATIONS:
+        if len(desired_stations) > 0 and int(station_id) in desired_stations:
             resp = requests.get(obs_url_lambda(param, station_id))
             resp.raise_for_status()
             data = resp.content.decode('utf-8')
@@ -69,8 +70,8 @@ def fetch_weather_for_date(param, station_meta, obs_url_lambda):
             temp_df = temp_df.with_columns(pl.lit(station_meta[station_id]["latitude"]).alias("StationLatitude"))
             temp_df = temp_df.with_columns(pl.lit(station_meta[station_id]["longitude"]).alias("StationLongitude"))
             df = pl.concat([df, temp_df])
-            if len(DESIRED_STATIONS) > 0:
-                print(str(i+1)+"/"+str(len(DESIRED_STATIONS))+" stations done")
+            if len(desired_stations) > 0:
+                print(str(i+1)+"/"+str(len(desired_stations))+" stations done")
             else:
                 print(str(i+1)+"/"+str(len(station_meta))+" stations done")
             i += 1
@@ -124,8 +125,7 @@ def plot_results(df_all):
         )
 
         data = [row["Value"] for row in grouped.iter_rows(named=True)]
-        stations_csv = pl.read_csv("weather_stations.csv")
-        labels = [stations_csv.filter(pl.col("ID") == row["StationID"])["Station"][0] for row in grouped.iter_rows(named=True)]
+        stations_csv = pl.read_csv(STATIONS_LIST_CSV_PATH)
         labels = [stations_csv.filter(pl.col("ID") == row["StationID"])["Name"][0] for row in grouped.iter_rows(named=True)]
 
         plt.subplot(2, 2, i+1)
