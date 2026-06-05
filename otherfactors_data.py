@@ -32,7 +32,8 @@ import matplotlib.pyplot as plt
 # Currently we only use GPS data, the other constellations create an error on gnss-lib / georinex trying to load the data
 
 #TODO
-# Implement other source of altitude (should be doable via lantmateriet or https://en-gb.topographic-map.com/map-v1zs/Sweden/)
+# Coordinates as a parameter
+# Better output and CSV output
 # Give the option to use Swepos instead https://www.lantmateriet.se/en/geodata/gps-geodesy-and-swepos/lantmateriets-doi-objects/swepos-rinex-data/?utm_source=chatgpt.com
 # Take the closest IGS station (https://network.igs.org/)
 
