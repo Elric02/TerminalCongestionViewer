@@ -2,6 +2,8 @@ import requests
 import csv
 import polars as pl
 import matplotlib.pyplot as plt
+import datetime
+
 
 # Date(s) to fetch, output CSV path
 ENTIRE_YEAR = True # True to use TARGET_YEAR (if you want data for a whole year), False to use TARGET_DATE (if you want data for a specific date)
@@ -10,11 +12,16 @@ TARGET_YEAR = "2024" # "YYYY"
 METEO_PARAMS = ["1", "6", "7", "9"] # List of the desired parameters to observe (e.g. "7" is the amount ot precipitation aggregated per hour). Source: https://opendata.smhi.se/metobs/resources/parameter#available-meterology-parameters
 DOWNLOAD_DATA = True # True if data to be requested to SMHI, False if CSVs are already there
 STATIONS_LIST_CSV_PATH = "weather_stations.csv" # CSV with the list of stations to fetch data for
+DESIRED_TIMEZONE = "Europe/Stockholm" # Default: "Europe/Stockholm"
 
 # Path for the output CSV containing raw data from SMHI
+# Note on time in the output file: row is up to that time (i.e. 6:00:00 -> data from 5:00:01 to 6:00:00)
+# Note2: time is in UTC!
 OUTPUT_CSV_RAW = lambda param : f"output/smhi_{param}_{TARGET_YEAR}.csv" if ENTIRE_YEAR else f"output/smhi_{param}_{TARGET_DATE}.csv"
 # Path for the output CSV with analysis of all stations and parameters
 OUTPUT_CSV_ANALYSIS = f"output/smhi_analysis_{TARGET_YEAR}.csv" if ENTIRE_YEAR else f"output/smhi_analysis_{TARGET_DATE}.csv"
+# Path for the merged raw data CSV
+OUTPUT_CSV_MERGED = f"output/smhi_merged_{TARGET_YEAR}.csv" if ENTIRE_YEAR else f"output/smhi_merged_{TARGET_DATE}.csv"
 # Parameters list URL
 PARAMETERS_URL = f"https://opendata-download-metobs.smhi.se/api/version/latest.json"
 # Stations list URL
@@ -66,6 +73,17 @@ def fetch_weather_for_date(param, station_meta, obs_url_lambda):
                 cr_list = [x[:4] for x in cr_list[header_row_index+1:] if x[2] != "" and x[0] == TARGET_DATE]
             # Transform into DataFrame, append station info and merge to the central dataframe
             temp_df = pl.DataFrame(cr_list, schema={"Date": pl.Utf8, "Time": pl.Utf8, "Value": pl.Float32, "Quality": pl.Utf8}, orient="row")
+            # Convert UTC date/time into desired local timezone and overwrite Date/Time columns
+            temp_df = temp_df.with_columns(
+                pl.concat_str([pl.col("Date"), pl.col("Time")], separator=" ")
+                .str.strptime(pl.Datetime(time_zone="UTC"), "%Y-%m-%d %H:%M:%S", strict=True)
+                .dt.convert_time_zone(DESIRED_TIMEZONE)
+                .alias("LocalTimestamp")
+            )
+            temp_df = temp_df.with_columns([
+                pl.col("LocalTimestamp").dt.strftime("%Y-%m-%d").alias("Date"),
+                pl.col("LocalTimestamp").dt.strftime("%H:%M").alias("Time"),
+            ]).drop("LocalTimestamp")
             temp_df = temp_df.with_columns(pl.lit(station_id).alias("StationID"))
             temp_df = temp_df.with_columns(pl.lit(station_meta[station_id]["latitude"]).alias("StationLatitude"))
             temp_df = temp_df.with_columns(pl.lit(station_meta[station_id]["longitude"]).alias("StationLongitude"))
@@ -77,11 +95,27 @@ def fetch_weather_for_date(param, station_meta, obs_url_lambda):
             i += 1
     return df
 
-def analyze_results(csv_path_lambda, parameters_url, meteo_params):
-    resp = requests.get(parameters_url)
-    resp.raise_for_status()
-    param_descs = dict([(x['key'], x['title']) for x in resp.json().get("resource")])
+def merge_raw_weather_files(csv_path_lambda, param_descs, meteo_params):
+    merged = None
+    for param in meteo_params:
+        df = pl.read_csv(csv_path_lambda(param))
+        key_cols = [col for col in df.columns if col not in ("Value", "Quality")]
+        print(key_cols)
+        value_col = param_descs[param]
+        quality_col = f"{value_col}_Quality"
+        df = df.rename({"Value": value_col, "Quality": quality_col})
+        print("df:")
+        print(df)
 
+        if merged is None:
+            merged = df
+        else:
+            merged = merged.join(df, on=key_cols, how="full", coalesce=True)
+        print("Merged:")
+        print(merged)
+    return merged
+
+def analyze_results(csv_path_lambda, param_descs, meteo_params):
     # Concatenate all CSVs into one DataFrame
     dfs = []
     for param in meteo_params:
@@ -146,16 +180,27 @@ def plot_results(df_all):
 
 
 def main():
-    if DOWNLOAD_DATA:
-        for param in METEO_PARAMS:
-            weather_data = fetch_weather_for_date(param, get_all_stations(STATIONS_URL(param)), OBS_URL)
-            weather_data.write_csv(OUTPUT_CSV_RAW(param))
-            print(f"Wrote weather data to {OUTPUT_CSV_RAW(param)}")
+    # Get the name for each parameter
+    resp = requests.get(PARAMETERS_URL)
+    resp.raise_for_status()
+    param_descs = dict([(x['key'], x['title']) for x in resp.json().get("resource")])
 
-    df_all, metrics = analyze_results(OUTPUT_CSV_RAW, PARAMETERS_URL, METEO_PARAMS)
-    print(metrics)
-    metrics.write_csv(OUTPUT_CSV_ANALYSIS)
-    plot_results(df_all)
+    if DOWNLOAD_DATA:
+        # Raw data download and processing
+        for param in METEO_PARAMS:
+            #weather_data = fetch_weather_for_date(param, get_all_stations(STATIONS_URL(param)), OBS_URL)
+            #weather_data.write_csv(OUTPUT_CSV_RAW(param))
+            print(f"Wrote weather data to {OUTPUT_CSV_RAW(param)}")
+        # Merging of the raw files
+        merged_raw = merge_raw_weather_files(OUTPUT_CSV_RAW, param_descs, METEO_PARAMS)
+        merged_raw.write_csv(OUTPUT_CSV_MERGED)
+        print(f"Wrote merged weather data to {OUTPUT_CSV_MERGED}")
+
+    # Analysis and plotting
+    #df_all, metrics = analyze_results(OUTPUT_CSV_RAW, param_descs, METEO_PARAMS)
+    #print(metrics)
+    #metrics.write_csv(OUTPUT_CSV_ANALYSIS)
+    #plot_results(df_all)
 
 if __name__ == "__main__":
     main()
