@@ -2,6 +2,7 @@ import polars as pl
 import traj_dist.distance as tdist
 import numpy as np
 from datetime import datetime
+from sklearn.cluster import DBSCAN
 
 
 terminal = "linköping"
@@ -27,21 +28,25 @@ def get_data():
 
 def format_data(df):
     # Select all trip IDs (1 per trajectory) and put them in a list
-    trip_ids = df.select(pl.col('trip_id')).unique().sort('trip_id').to_series().to_list()
-    trip_ids = [x for x in trip_ids if x is not None]
-    print("Trip IDs considered:", trip_ids)
+    trip_ids_all = df.select(pl.col('trip_id')).unique().sort('trip_id').to_series().to_list()
+    trip_ids_all = [x for x in trip_ids_all if x is not None]
+    print("Trip IDs considered:", trip_ids_all)
+
+    # Keep only trip ids that result in a trajectory with >=5 points
+    trip_ids = []
 
     # Format coordinates points to numpy arrays, 1 per traj, and put them in a list
     trip_coords_list = []
     trip_coords_inv_list = []
     trip_coords_rand_list = []
     i = 0
-    for trip in trip_ids:
+    for trip in trip_ids_all:
         i += 1
         temp_df = df.filter(pl.col("trip_id") == trip)
         # Remove potential trajectories with less than 5 points, as they are not interesting for the distance measures and can cause errors
         if temp_df.shape[0] < min_points_in_traj:
             continue
+        trip_ids.append(trip)
         # Trajectory with points in their normal order
         trip_coords_list.append(temp_df.select(pl.col('longitude'), pl.col('latitude')).to_numpy())
         # Trajectory with points in the reversed order (i.e. the first point becomes the last)
@@ -55,6 +60,24 @@ def format_data(df):
 
 def quick_analysis(data, measure="", name=""):
     return {"measure": measure, "name": name, "len": len(data), "mean": np.mean(data), "std": np.std(data), "min": np.min(data), "max": np.max(data), "median": np.median(data)}
+
+
+def cluster_trips_dbscan(trip_coords_list, eps=None, min_samples=2):
+    if len(trip_coords_list) < 2:
+        return np.array([], dtype=int), np.array([])
+
+    sspd_dist = tdist.pdist(trip_coords_list, metric="sspd", verbose=True)
+    n = len(trip_coords_list)
+    dist_matrix = np.zeros((n, n), dtype=float)
+    upper_idx = np.triu_indices(n, k=1)
+    dist_matrix[upper_idx] = sspd_dist
+    dist_matrix[(upper_idx[1], upper_idx[0])] = sspd_dist
+
+    if eps is None:
+        eps = max(np.percentile(sspd_dist, 0.5), 1e-7)
+
+    labels = DBSCAN(eps=eps, min_samples=min_samples, metric="precomputed").fit_predict(dist_matrix)
+    return labels, sspd_dist
 
 
 # Just bits of code I used to try out the different measures and see the differences
@@ -175,6 +198,36 @@ def comparison(df, comparison_type="routes"):
                     print(f"Not enough trajectories for route {route} to calculate distance measures.")
                     results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "len": 0, "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
         
+    if comparison_type == "clustered":
+        trip_ids, trip_coords_list, _, _ = format_data(df)
+        if len(trip_ids) < 2:
+            print(f"Not enough trajectories to cluster and calculate distance measures.")
+            results.append({"measure": "None", "name": f"{date} clustered", "len": 0, "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
+        else:
+            labels, _ = cluster_trips_dbscan(trip_coords_list)
+            # Export cluster assignments for each trip
+            try:
+                df_assign = pl.DataFrame({"trip_id": trip_ids, "cluster": labels})
+                df_assign.write_csv(f'output/cluster_assignments_{terminal}_{date}.csv')
+            except Exception as e:
+                print(f"Failed to write cluster assignments CSV: {e}")
+            unique_labels, counts = np.unique(labels, return_counts=True)
+            for label, count in zip(unique_labels, counts):
+                print(f"Cluster {label}: {count} trajectories")
+                if label == -1:
+                    print(f"Noise trajectories (label=-1): {count}")
+                    continue
+                if count < 2:
+                    print(f"Cluster {label} has only {count} trajectory; skipping distance calculation.")
+                    continue
+
+                cluster_trajs = [trip_coords_list[i] for i in range(len(trip_coords_list)) if labels[i] == label]
+                #print(cluster_trajs)
+                sspd = tdist.pdist(cluster_trajs, metric="sspd", verbose=True)
+                dfd = tdist.pdist(cluster_trajs, metric="discret_frechet", verbose=True)
+                results.append(quick_analysis(sspd, measure="sspd", name=f"{date} cluster_{label}_size_{count}"))
+                results.append(quick_analysis(dfd, measure="dfd", name=f"{date} cluster_{label}_size_{count}"))
+
     results_df = pl.DataFrame(results)
     return results_df
 
@@ -183,5 +236,5 @@ data = get_data()
 
 #try_measures(data)
 
-results_df = comparison(data, comparison_type="routes") # comparison_type is either "routes" or "hours"
-results_df.write_csv(f'output/uncertainty_comparison_{terminal}_{date}.csv')
+results_df = comparison(data, comparison_type="clustered") # comparison_type is either "routes" or "hours"
+results_df.write_csv(f'output/uncertainty_comparison_{terminal}_{date}_clustered.csv')
