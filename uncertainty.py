@@ -9,6 +9,7 @@ date = "2024-09-30"
 providers = ["otraf"] # Attention: if there are several operators, they must be in the same order than in the filename!
 # Only used in hour_comparison()
 time_range = [6, 8] # second number not included (i.e. [6, 8] -> from 6:00:00 to 7:59:59)
+min_points_in_traj = 10 # minimum number of points in a trajectory for it to be considered in the calculations
 
 
 def get_data():
@@ -39,7 +40,7 @@ def format_data(df):
         i += 1
         temp_df = df.filter(pl.col("trip_id") == trip)
         # Remove potential trajectories with less than 5 points, as they are not interesting for the distance measures and can cause errors
-        if temp_df.shape[0] < 5:
+        if temp_df.shape[0] < min_points_in_traj:
             continue
         # Trajectory with points in their normal order
         trip_coords_list.append(temp_df.select(pl.col('longitude'), pl.col('latitude')).to_numpy())
