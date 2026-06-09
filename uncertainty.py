@@ -6,10 +6,10 @@ from sklearn.cluster import DBSCAN
 
 
 terminal = "linköping"
-date = "2024-09-30"
+date = "2022-03-22"
 providers = ["otraf"] # Attention: if there are several operators, they must be in the same order than in the filename!
 # Only used in hour_comparison()
-time_range = [6, 8] # second number not included (i.e. [6, 8] -> from 6:00:00 to 7:59:59)
+time_range = [5, 24] # second number not included (i.e. [6, 8] -> from 6:00:00 to 7:59:59)
 min_points_in_traj = 10 # minimum number of points in a trajectory for it to be considered in the calculations
 
 
@@ -23,9 +23,7 @@ def format_data(df):
     trip_ids_all = [x for x in trip_ids_all if x is not None]
     print("Trip IDs considered:", trip_ids_all)
 
-    # Keep only trip ids that result in a trajectory with >=5 points
     trip_ids = []
-
     # Format coordinates points to numpy arrays, 1 per traj, and put them in a list
     trip_coords_list = []
     trip_coords_inv_list = []
@@ -34,7 +32,7 @@ def format_data(df):
     for trip in trip_ids_all:
         i += 1
         temp_df = df.filter(pl.col("trip_id") == trip)
-        # Remove potential trajectories with less than 5 points, as they are not interesting for the distance measures and can cause errors
+        # Remove potential trajectories with less than X points, as they are not interesting for the distance measures and can cause errors
         if temp_df.shape[0] < min_points_in_traj:
             continue
         trip_ids.append(trip)
@@ -53,7 +51,8 @@ def quick_analysis(data, measure="", name=""):
     return {"measure": measure, "name": name, "len": len(data), "mean": np.mean(data), "std": np.std(data), "min": np.min(data), "max": np.max(data), "median": np.median(data)}
 
 
-def cluster_trips_dbscan(trip_coords_list, eps=None, min_samples=2):
+# Note: eps_percentile is the percentage in full numbers (e.g. 0.5 is 0.5%, NOT 50%)
+def cluster_trips_dbscan(trip_coords_list, eps=None, eps_percentile=0.5, min_samples=2):
     if len(trip_coords_list) < 2:
         return np.array([], dtype=int), np.array([])
 
@@ -65,10 +64,10 @@ def cluster_trips_dbscan(trip_coords_list, eps=None, min_samples=2):
     dist_matrix[(upper_idx[1], upper_idx[0])] = sspd_dist
 
     if eps is None:
-        eps = max(np.percentile(sspd_dist, 0.5), 1e-7)
+        eps = max(np.percentile(sspd_dist, eps_percentile), 1e-7)
 
     labels = DBSCAN(eps=eps, min_samples=min_samples, metric="precomputed").fit_predict(dist_matrix)
-    return labels, sspd_dist
+    return labels, sspd_dist, eps
 
 
 def comparison(df, comparison_type="routes"):
@@ -104,9 +103,23 @@ def comparison(df, comparison_type="routes"):
             for direction in direction_values:
                 df_direction = df_route.filter(pl.col("direction_id") == direction)
                 print(f"route_short_name: {route}, direction_id: {direction}, nb of rows: {len(df_direction)}")
-
                 trip_ids, trip_coords_list, _, _ = format_data(df_direction)
                 if len(trip_ids) > 1:
+                    labels, _, eps = cluster_trips_dbscan(trip_coords_list, eps_percentile=50, min_samples=3)
+                    print(labels)
+                    uniq, counts = np.unique(labels, return_counts=True)
+                    print('p', 50, 'eps', eps, 'clusters', len(uniq[uniq!=-1]) if len(uniq)>0 else 0, 'noise', counts[uniq==-1][0] if -1 in uniq else 0, 'labelcounts', list(zip(uniq, counts)))
+                    df_assign = pl.DataFrame({"trip_id": trip_ids, "cluster": labels})
+                    df_assign.write_csv(f'output/cluster_assignments_{terminal}_{date}.csv')
+                    exit()
+                    
+    #TODO
+    # Filter out rows with len < min_points_in_traj before the clustering takes place
+    # Run the code and check out cluster_assignmentsxxx.csv
+    # See if there's any trip+dir with more than 1 cluster. Think about how to handle this case in the automated analysis; probably discard the whole trip+dir in that case
+    # Tweak parameters (mostly eps_percentile), look at every trip+dir to make sure that all outliers were identified as outliers, and not more
+    # Automate/clean up the whole thing and prepare for the next steps
+
                     sspd = tdist.pdist(trip_coords_list, metric="sspd", verbose=True)
                     dfd = tdist.pdist(trip_coords_list, metric="discret_frechet", verbose=True)
                     results.append(quick_analysis(sspd, measure="sspd", name=f"{date} route_{route}_dir_{direction}"))
@@ -121,7 +134,7 @@ def comparison(df, comparison_type="routes"):
             print(f"Not enough trajectories to cluster and calculate distance measures.")
             results.append({"measure": "None", "name": f"{date} clustered", "len": 0, "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
         else:
-            labels, _ = cluster_trips_dbscan(trip_coords_list)
+            labels, _, _ = cluster_trips_dbscan(trip_coords_list)
             # Export cluster assignments for each trip
             try:
                 df_assign = pl.DataFrame({"trip_id": trip_ids, "cluster": labels})
@@ -151,5 +164,5 @@ def comparison(df, comparison_type="routes"):
 
 data = get_data()
 
-results_df = comparison(data, comparison_type="clustered") # comparison_type is either "routes" or "hours"
-results_df.write_csv(f'output/uncertainty_comparison_{terminal}_{date}_clustered.csv')
+results_df = comparison(data, comparison_type="routes") # comparison_type is "hours", "routes" or "clustered"
+results_df.write_csv(f'output/uncertainty_comparison_{terminal}_{date}.csv')
