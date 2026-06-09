@@ -41,4 +41,4 @@ terminal_coordinates_df = pl.read_csv(terminals_csv)
 terminal_names = terminal_coordinates_df.select(pl.col('terminal')).unique().to_series().to_list()
 print("Terminals to process:", terminal_names)
 for terminal_name in terminal_names:
-    process_terminals(terminal_coordinates_df, terminal_name)
+    process_terminal(terminal_coordinates_df, terminal_name)
