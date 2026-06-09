@@ -15,15 +15,6 @@ min_points_in_traj = 10 # minimum number of points in a trajectory for it to be 
 
 def get_data():
     df = pl.read_csv(f"output/vehiclepositions_terminal_{terminal}_{("_".join(providers))}_{date}.csv", schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8})
-
-
-    '''
-    # Select only data points for the route we want to examine
-    df = df.filter(pl.col("route_short_name") == 1)
-    df = df.filter(pl.col("direction_id") == 1)
-    # Remove incomplete paths / outliers
-    df = df.filter(pl.col("trip_id") != "55700000076548069")
-    '''
     return df
 
 def format_data(df):
@@ -78,80 +69,6 @@ def cluster_trips_dbscan(trip_coords_list, eps=None, min_samples=2):
 
     labels = DBSCAN(eps=eps, min_samples=min_samples, metric="precomputed").fit_predict(dist_matrix)
     return labels, sspd_dist
-
-
-# Just bits of code I used to try out the different measures and see the differences
-def try_measures(data):
-    trip_ids, trip_coords_list, trip_coords_inv_list, trip_coords_rand_list = format_data(data)
-    #print(trip_coords_list[0])
-    #print(trip_coords_inv_list[0])
-    #print(trip_coords_rand_list[0])
-    print("Length of the trajectories:", [len(traj) for traj in trip_coords_list])
-    # Calculate distance measures for each pair of trajectory
-    #a=np.array([(116.750,40.632),(116.760,40.642),(116.770,40.652)])
-    #b=np.array([(116.751,40.632),(116.761,40.642),(116.771,40.652)])
-    sspd = tdist.pdist(trip_coords_list, metric="sspd")
-    sspd_inv = tdist.pdist(trip_coords_inv_list, metric="sspd")
-    sspd_rand = tdist.pdist(trip_coords_rand_list, metric="sspd")
-    print("-- SSPD --")
-    #print(sspd)
-    print(quick_analysis(sspd))
-    print("-- SSPD (inverted) --")
-    #print(sspd_inv)
-    print(quick_analysis(sspd_inv))
-    print("-- SSPD (randomized) --")
-    #print(sspd_rand)
-    print(quick_analysis(sspd_rand))
-    all_points = np.vstack(trip_coords_list)
-    g = np.mean(all_points, axis=0)
-    print(f"ERP gap penalty g: {g}")
-    erp = tdist.pdist(trip_coords_list, metric="erp", type_d="spherical", g=g)
-    erp_inv = tdist.pdist(trip_coords_inv_list, metric="erp", type_d="spherical", g=g)
-    erp_rand = tdist.pdist(trip_coords_rand_list, metric="erp", type_d="spherical", g=g)
-    print("-- ERP --")
-    print(erp)
-    print(quick_analysis(erp))
-    print("-- ERP (inverted) --")
-    print(erp_inv)
-    print(quick_analysis(erp_inv))
-    print("-- ERP (randomized) --")
-    print(erp_rand)
-    print(quick_analysis(erp_rand))
-    dtw = tdist.pdist(trip_coords_list, metric="dtw")
-    dtw_inv = tdist.pdist(trip_coords_inv_list, metric="dtw")
-    dtw_rand = tdist.pdist(trip_coords_rand_list, metric="dtw")
-    print("-- DTW --")
-    print(dtw)
-    print(quick_analysis(dtw))
-    print("-- DTW (inverted) --")
-    print(dtw_inv)
-    print(quick_analysis(dtw_inv))
-    print("-- DTW (randomized) --")
-    print(dtw_rand)
-    print(quick_analysis(dtw_rand))
-    dfd = tdist.pdist(trip_coords_list, metric="discret_frechet")
-    dfd_inv = tdist.pdist(trip_coords_inv_list, metric="discret_frechet")
-    dfd_rand = tdist.pdist(trip_coords_rand_list, metric="discret_frechet")
-    print("-- DFD --")
-    #print(dfd)
-    print(quick_analysis(dfd))
-    print("-- DFD (inverted) --")
-    #print(dfd_inv)
-    print(quick_analysis(dfd_inv))
-    print("-- DFD (randomized) --")
-    #print(dfd_rand)
-    print(quick_analysis(dfd_rand))
-    output = pl.DataFrame(
-        {
-            "traj1": [trip_ids[i] for i in range(len(trip_ids)) for _ in range(i+1, len(trip_ids))],
-            "traj2": [trip_ids[j] for i in range(len(trip_ids)) for j in range(i+1, len(trip_ids))],
-            "sspd": sspd,
-            "erp": erp,
-            "dtw": dtw,
-            "dfd": dfd,
-        }
-    )
-    output.write_csv(f'output/pairwise_distances_{terminal}_{date}.csv')
 
 
 def comparison(df, comparison_type="routes"):
@@ -233,8 +150,6 @@ def comparison(df, comparison_type="routes"):
 
 
 data = get_data()
-
-#try_measures(data)
 
 results_df = comparison(data, comparison_type="clustered") # comparison_type is either "routes" or "hours"
 results_df.write_csv(f'output/uncertainty_comparison_{terminal}_{date}_clustered.csv')
