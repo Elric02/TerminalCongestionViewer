@@ -97,6 +97,7 @@ def comparison(df, comparison_type="routes"):
         # Remove values with no route
         df = df.filter(pl.col("route_short_name") != -1)
         route_values = df.select(pl.col("route_short_name")).unique().to_series().to_list()
+        df_assign = pl.DataFrame(schema={"trip_id": pl.Utf8, "cluster": pl.Int64})
         for route in route_values:
             df_route = df.filter(pl.col("route_short_name") == route)
             direction_values = df_route.select(pl.col("direction_id")).unique().to_series().to_list()
@@ -105,16 +106,14 @@ def comparison(df, comparison_type="routes"):
                 print(f"route_short_name: {route}, direction_id: {direction}, nb of rows: {len(df_direction)}")
                 trip_ids, trip_coords_list, _, _ = format_data(df_direction)
                 if len(trip_ids) > 1:
-                    labels, _, eps = cluster_trips_dbscan(trip_coords_list, eps_percentile=50, min_samples=3)
-                    print(labels)
+                    labels, _, eps = cluster_trips_dbscan(trip_coords_list, eps_percentile=10, min_samples=4)
                     uniq, counts = np.unique(labels, return_counts=True)
                     print('p', 50, 'eps', eps, 'clusters', len(uniq[uniq!=-1]) if len(uniq)>0 else 0, 'noise', counts[uniq==-1][0] if -1 in uniq else 0, 'labelcounts', list(zip(uniq, counts)))
-                    df_assign = pl.DataFrame({"trip_id": trip_ids, "cluster": labels})
-                    df_assign.write_csv(f'output/cluster_assignments_{terminal}_{date}.csv')
-                    exit()
+                    df_assign_temp = pl.DataFrame({"trip_id": trip_ids, "cluster": labels})
+                    df_assign = pl.concat([df_assign, df_assign_temp])
                     
     #TODO
-    # Filter out rows with len < min_points_in_traj before the clustering takes place
+    # Filter out rows with len < 5 (5 being an arbitrarily chosen number of trajs) before the clustering takes place
     # Run the code and check out cluster_assignmentsxxx.csv
     # See if there's any trip+dir with more than 1 cluster. Think about how to handle this case in the automated analysis; probably discard the whole trip+dir in that case
     # Tweak parameters (mostly eps_percentile), look at every trip+dir to make sure that all outliers were identified as outliers, and not more
@@ -127,6 +126,7 @@ def comparison(df, comparison_type="routes"):
                 else:
                     print(f"Not enough trajectories for route {route} to calculate distance measures.")
                     results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "len": 0, "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
+        df_assign.write_csv(f'output/cluster_assignments_{terminal}_{date}.csv')
         
     if comparison_type == "clustered":
         trip_ids, trip_coords_list, _, _ = format_data(df)
