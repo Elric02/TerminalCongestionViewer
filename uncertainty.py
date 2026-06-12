@@ -88,13 +88,18 @@ def export_to_gpkg(df_vehiclepositions, df_clusters):
     merged = merged.filter(pl.col("cluster").is_not_null())
 
     # Build formatted column: "{route_short_name}_{direction_id}_{cluster}"
-    rs = merged['route_short_name'].fillna('').astype(str)
-    di = merged['direction_id'].fillna('').astype(str)
-    cl = merged['cluster'].fillna('').astype(str)
-    merged['route_dir_cluster'] = rs + '_' + di + '_' + cl
+    merged = merged.with_columns([
+        pl.col("route_short_name").fill_null("").cast(pl.Utf8),
+        pl.col("direction_id").fill_null("").cast(pl.Utf8),
+        pl.col("cluster").fill_null("").cast(pl.Utf8),
+        pl.concat_str(
+            [pl.col("route_short_name"), pl.col("direction_id"), pl.col("cluster")],
+            separator="_"
+        ).alias("route_dir_cluster"),
+    ])
     if export_intermediate_to_csv:
         out_path = f"output/joined_{terminal}_{date}.csv"
-        merged.to_csv(out_path, index=False)
+        merged.write_csv(out_path)
         print(f"Wrote joined CSV: {out_path} (rows={len(merged)})")
 
     categories = merged['route_dir_cluster'].unique().sort().to_list()
