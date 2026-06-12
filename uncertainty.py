@@ -1,3 +1,6 @@
+#TODO: Idea: use multiple DBSCAN with different parameters, analyse the results?
+
+
 import polars as pl
 import traj_dist.distance as tdist
 import numpy as np
@@ -12,6 +15,8 @@ providers = ["otraf"] # Attention: if there are several operators, they must be 
 time_range = [5, 24] # Second number not included (i.e. [6, 8] -> from 6:00:00 to 7:59:59)
 min_points_in_traj = 10 # Minimum number of points in a trajectory for it to be considered in the calculations
 min_trips_for_clustering = 5 # Minimum number of trips/trajectories in the route+dir set for the clustering and analysis to happen
+discard_if_several_clusters = True # Whether the program should discard the route+dirs for which clustering has yield to more than 1 cluster (not counting outliers)
+export_intermediate_to_csv = False # Whether to export the intermediate files (such as cluster_assignments and joined) to CSVs
 
 
 def get_data():
@@ -106,27 +111,27 @@ def comparison(df, comparison_type="routes"):
                 df_direction = df_route.filter(pl.col("direction_id") == direction)
                 print(f"route_short_name: {route}, direction_id: {direction}, nb of rows: {len(df_direction)}")
                 trip_ids, trip_coords_list, _, _ = format_data(df_direction)
-                if len(trip_ids) > min_trips_for_clustering:
+                if len(trip_ids) >= min_trips_for_clustering:
                     labels, _, eps = cluster_trips_dbscan(trip_coords_list, eps_percentile=10, min_samples=4)
                     uniq, counts = np.unique(labels, return_counts=True)
-                    print('p', 50, 'eps', eps, 'clusters', len(uniq[uniq!=-1]) if len(uniq)>0 else 0, 'noise', counts[uniq==-1][0] if -1 in uniq else 0, 'labelcounts', list(zip(uniq, counts)))
+                    nb_clusters = len(uniq[uniq!=-1]) if len(uniq)>0 else 0
+                    print('p', 50, 'eps', eps, 'clusters', nb_clusters, 'noise', counts[uniq==-1][0] if -1 in uniq else 0, 'labelcounts', list(zip(uniq, counts)))
                     df_assign_temp = pl.DataFrame({"trip_id": trip_ids, "cluster": labels})
                     df_assign = pl.concat([df_assign, df_assign_temp])
-                    
-    #TODO
-    # Run the code and check out cluster_assignmentsxxx.csv
-    # See if there's any trip+dir with more than 1 cluster. Think about how to handle this case in the automated analysis; probably discard the whole trip+dir in that case (or maybe not? it could discard really noisy trip+dir's)
-    # Tweak parameters, look at every trip+dir to make sure that all outliers were identified as outliers, and not more (CURRENT STATUS 10.06: some trip+dir are really good, some other are too sensitive and classify noisy trajs as outliers or second clusters)
-    # Automate/clean up the whole thing and prepare for the next steps
-
-                    sspd = tdist.pdist(trip_coords_list, metric="sspd", verbose=True)
-                    dfd = tdist.pdist(trip_coords_list, metric="discret_frechet", verbose=True)
-                    results.append(quick_analysis(sspd, measure="sspd", name=f"{date} route_{route}_dir_{direction}"))
-                    results.append(quick_analysis(dfd, measure="dfd", name=f"{date} route_{route}_dir_{direction}"))
+                    if nb_clusters > 1 and discard_if_several_clusters:
+                        print(f"Discarding {route}, direction {direction} since it had {nb_clusters} clusters and parameter discard_if_several_clusters is set to True.")
+                        results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "len": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
+                    else:
+                        sspd = tdist.pdist(trip_coords_list, metric="sspd", verbose=True)
+                        dfd = tdist.pdist(trip_coords_list, metric="discret_frechet", verbose=True)
+                        results.append(quick_analysis(sspd, measure="sspd", name=f"{date} route_{route}_dir_{direction}"))
+                        results.append(quick_analysis(dfd, measure="dfd", name=f"{date} route_{route}_dir_{direction}"))
                 else:
-                    print(f"Not enough trajectories for route {route} to calculate distance measures. Try changing the min_trips_for_clustering (current value: {min_trips_for_clustering}) parameter if you believe this is a mistake.")
-                    results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "len": 0, "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
-        df_assign.write_csv(f'output/cluster_assignments_{terminal}_{date}.csv')
+                    print(f"Not enough trajectories for route {route}, direction {direction} to calculate distance measures. Try changing the min_trips_for_clustering (current value: {min_trips_for_clustering}) parameter if you believe this is a mistake.")
+                    results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "len": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
+        if export_intermediate_to_csv:
+            df_assign.write_csv(f'output/cluster_assignments_{terminal}_{date}.csv')
+        
         
     if comparison_type == "clustered":
         trip_ids, trip_coords_list, _, _ = format_data(df)
