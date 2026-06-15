@@ -196,8 +196,9 @@ def comparison(df, comparison_type="routes"):
                         routedirs_count[0] += 1
                         df_clusters_temp = pl.DataFrame({"trip_id": trip_ids, "cluster": labels})
                         df_clusters = pl.concat([df_clusters, df_clusters_temp])
-                        sspd = tdist.pdist(trip_coords_list, metric="sspd", verbose=True)
-                        dfd = tdist.pdist(trip_coords_list, metric="discret_frechet", verbose=True)
+                        _, trip_coords_list_cluster0, _, _ = format_data(df_clusters.filter(pl.col("cluster") == 0))
+                        sspd = tdist.pdist(trip_coords_list_cluster0, metric="sspd", verbose=True)
+                        dfd = tdist.pdist(trip_coords_list_cluster0, metric="discret_frechet", verbose=True)
                         results.append(quick_analysis(sspd, measure="sspd", name=f"{date} route_{route}_dir_{direction}"))
                         results.append(quick_analysis(dfd, measure="dfd", name=f"{date} route_{route}_dir_{direction}"))
                 else:
