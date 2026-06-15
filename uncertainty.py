@@ -1,3 +1,6 @@
+#TODO: Improve speed of paths layer output (what takes time is writing on the file at each iteration)
+#TODO: Fix discarding outliers
+#TODO: Treat cases with nb_clusters > 1 (and discard_if_several_clusters==False) as separate clusters
 #TODO: Idea: use multiple DBSCAN with different parameters, analyse the results?
 
 
@@ -19,9 +22,12 @@ min_points_in_traj = 10 # Minimum number of points in a trajectory for it to be 
 min_trips_for_clustering = 5 # Minimum number of trips/trajectories in the route+dir set for the clustering and analysis to happen
 discard_if_several_clusters = True # Whether the program should discard the route+dirs for which clustering has yield to more than 1 cluster (not counting outliers)
 export_intermediate_to_csv = True # Whether to export the intermediate files (such as cluster_assignments and joined) to CSVs
+
 # Parameters for the DBSCAN for the process "split by route+dir and cluster"
 global_eps_percentile = 20 # Note: eps_percentile is the percentage in full numbers (e.g. 0.5 is 0.5%, NOT 50%)
 global_min_samples = 5
+
+paths_gpkg = False # Whether you also want a 2nd GPKG file with paths instead of points
 
 
 def get_data():
@@ -122,26 +128,29 @@ def export_to_gpkg(df_vehiclepositions, df_clusters):
         print(f"Layer '{cat_value}': written ({len(gdf)} rows)")
 
         # PATHS GEOPACKAGE
-        output_lines_gpkg = f"output/geopackage_{terminal}_{date}_paths.gpkg"
-        for trip in merged["trip_id"].unique().sort().to_list():
-            subset2 = merged.filter(pl.col("trip_id") == trip)
-            pandas_df = subset2.to_pandas()
-            coords = list(zip(pandas_df["longitude"], pandas_df["latitude"]))
-            if len(coords) >= 2:
-                line = LineString(coords)
-                trajectory_gdf = gpd.GeoDataFrame(
-                    {
-                        "route_dir_cluster": [cat_value],
-                        "n_points": [len(coords)],
-                    },
-                    geometry=[line],
-                    crs="EPSG:4326"
-                )
-                trajectory_gdf.to_file(
-                    output_lines_gpkg,
-                    layer=cat_value,
-                    driver="GPKG",
-                    mode="w" if i == 0 else "a"
+        if paths_gpkg:
+            output_lines_gpkg = f"output/geopackage_{terminal}_{date}_paths.gpkg"
+            trips_list = merged["trip_id"].unique().sort().to_list()
+            for trip_nr, trip in enumerate(trips_list):
+                if trip_nr%5 == 0: print("Trip", trip_nr, "/", len(trips_list))
+                subset2 = merged.filter(pl.col("trip_id") == trip)
+                pandas_df = subset2.to_pandas()
+                coords = list(zip(pandas_df["longitude"], pandas_df["latitude"]))
+                if len(coords) >= 2:
+                    line = LineString(coords)
+                    trajectory_gdf = gpd.GeoDataFrame(
+                        {
+                            "route_dir_cluster": [cat_value],
+                            "n_points": [len(coords)],
+                        },
+                        geometry=[line],
+                        crs="EPSG:4326"
+                    )
+                    trajectory_gdf.to_file(
+                        output_lines_gpkg,
+                        layer=cat_value,
+                        driver="GPKG",
+                        mode="w" if i == 0 else "a"
                 )
  
     print("In QGIS: Layer -> Add Layer -> Add Vector Layer, then select the .gpkg file.")
@@ -175,7 +184,7 @@ def comparison(df, comparison_type="routes"):
         df = df.filter(pl.col("route_short_name") != -1)
         route_values = df.select(pl.col("route_short_name")).unique().to_series().to_list()
         df_clusters = pl.DataFrame(schema={"trip_id": pl.Utf8, "cluster": pl.Int64})
-        routedirs_count = [0, 0, 0]
+        routedirs_count = [0, 0, 0, 0]
         for route in route_values:
             df_route = df.filter(pl.col("route_short_name") == route)
             direction_values = df_route.select(pl.col("direction_id")).unique().to_series().to_list()
@@ -193,16 +202,27 @@ def comparison(df, comparison_type="routes"):
                         print(f"Discarding route {route}, direction {direction} since it had {nb_clusters} clusters and parameter discard_if_several_clusters is set to True.")
                         results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "len": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
                     else:
-                        routedirs_count[0] += 1
                         df_clusters_temp = pl.DataFrame({"trip_id": trip_ids, "cluster": labels})
                         df_clusters = pl.concat([df_clusters, df_clusters_temp])
+                        '''
+                        print(df_clusters.filter(pl.col("cluster") == 0))
+                        exit()
                         _, trip_coords_list_cluster0, _, _ = format_data(df_clusters.filter(pl.col("cluster") == 0))
+                        if len(trip_coords_list_cluster0) < 1:
+                            routedirs_count[2] += 1
+                            print(f"Discarding route {route}, direction {direction} since there are only {len(trip_coords_list_cluster0)} trips in the main cluster.")
+                            results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "len": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
+                            continue
+                        routedirs_count[0] += 1
                         sspd = tdist.pdist(trip_coords_list_cluster0, metric="sspd", verbose=True)
                         dfd = tdist.pdist(trip_coords_list_cluster0, metric="discret_frechet", verbose=True)
+                        '''
+                        sspd = tdist.pdist(trip_coords_list, metric="sspd", verbose=True)
+                        dfd = tdist.pdist(trip_coords_list, metric="discret_frechet", verbose=True)
                         results.append(quick_analysis(sspd, measure="sspd", name=f"{date} route_{route}_dir_{direction}"))
                         results.append(quick_analysis(dfd, measure="dfd", name=f"{date} route_{route}_dir_{direction}"))
                 else:
-                    routedirs_count[2] += 1
+                    routedirs_count[3] += 1
                     print(f"Not enough trajectories for route {route}, direction {direction} to calculate distance measures. Try changing the min_trips_for_clustering (current value: {min_trips_for_clustering}) parameter if you believe this is a mistake.")
                     results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "len": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
         if export_intermediate_to_csv:
@@ -210,7 +230,7 @@ def comparison(df, comparison_type="routes"):
             df_clusters.write_csv(out_path)
             print(f"Wrote clusters CSV: {out_path} (rows={len(df_clusters)})")
         export_to_gpkg(df, df_clusters)
-        print("Route+dirs... kept:", routedirs_count[0], ", discarded because of multiple clusters:", routedirs_count[1], ", discarded because there were too few trajectories:", routedirs_count[2])
+        print("Route+dirs... kept:", routedirs_count[0], ", discarded because of multiple clusters:", routedirs_count[1], ", discarded because of too few trajs in main cluster:", routedirs_count[2], ", discarded because too few trajectories in general:", routedirs_count[3])
         
         
     if comparison_type == "clustered":
