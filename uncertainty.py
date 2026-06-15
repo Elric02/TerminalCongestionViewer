@@ -7,7 +7,7 @@ import numpy as np
 from datetime import datetime
 from sklearn.cluster import DBSCAN
 import geopandas as gpd
-from shapely.geometry import Point
+from shapely.geometry import Point, LineString
 
 
 terminal = "linköping"
@@ -107,20 +107,42 @@ def export_to_gpkg(df_vehiclepositions, df_clusters):
 
     for i, cat_value in enumerate(categories):
         subset = merged.filter(pl.col("route_dir_cluster") == cat_value)
- 
-        # Build a GeoDataFrame
         pandas_df = subset.to_pandas()
+ 
+        # POINTS GEOPACKAGE
+        output_points_gpkg = f"output/geopackage_{terminal}_{date}.gpkg"
         geometry = [
             Point(lon, lat)
             for lon, lat in zip(pandas_df["longitude"], pandas_df["latitude"])
         ]
         gdf = gpd.GeoDataFrame(pandas_df, geometry=geometry, crs="EPSG:4326")
- 
         # Write mode: overwrite on first layer, append on the rest
         write_mode = "w" if i == 0 else "a"
-        output_gpkg = f"output/geopackage_{terminal}_{date}.gpkg"
-        gdf.to_file(output_gpkg, layer=cat_value, driver="GPKG", mode=write_mode)
+        gdf.to_file(output_points_gpkg, layer=cat_value, driver="GPKG", mode=write_mode)
         print(f"Layer '{cat_value}': written ({len(gdf)} rows)")
+
+        # PATHS GEOPACKAGE
+        output_lines_gpkg = f"output/geopackage_{terminal}_{date}_paths.gpkg"
+        for trip in merged["trip_id"].unique().sort().to_list():
+            subset2 = merged.filter(pl.col("trip_id") == trip)
+            pandas_df = subset2.to_pandas()
+            coords = list(zip(pandas_df["longitude"], pandas_df["latitude"]))
+            if len(coords) >= 2:
+                line = LineString(coords)
+                trajectory_gdf = gpd.GeoDataFrame(
+                    {
+                        "route_dir_cluster": [cat_value],
+                        "n_points": [len(coords)],
+                    },
+                    geometry=[line],
+                    crs="EPSG:4326"
+                )
+                trajectory_gdf.to_file(
+                    output_lines_gpkg,
+                    layer=cat_value,
+                    driver="GPKG",
+                    mode="w" if i == 0 else "a"
+                )
  
     print("In QGIS: Layer -> Add Layer -> Add Vector Layer, then select the .gpkg file.")
 
