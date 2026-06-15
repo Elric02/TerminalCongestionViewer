@@ -36,9 +36,10 @@ def process_terminal(terminal_coordinates_df, terminal_name):
     total_df.write_csv(export_path)
 
 # MAIN
-terminal_coordinates_df = pl.read_csv(terminals_csv)
+#terminal_coordinates_df = pl.read_csv(terminals_csv)
 # Get a list of all the (unique) names of the terminals to process
-terminal_names = terminal_coordinates_df.select(pl.col('terminal')).unique().to_series().to_list()
-print("Terminals to process:", terminal_names)
-for terminal_name in terminal_names:
-    process_terminal(terminal_coordinates_df, terminal_name)
+#terminal_names = terminal_coordinates_df.select(pl.col('terminal')).unique().to_series().to_list()
+#print("Terminals to process:", terminal_names)
+#for terminal_name in terminal_names:
+#    process_terminal(terminal_coordinates_df, terminal_name)
+koda_lib.import_timeframe("otraf", "2026-06-08", [[[6, 0, 0], [7, 59, 59]]], import_method="online", export_type="csv", export_name="output/vehiclepositions_terminal_linköping_otraf_2026-06-08.csv", delete_tempdata=True)
