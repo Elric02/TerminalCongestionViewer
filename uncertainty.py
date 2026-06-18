@@ -16,7 +16,8 @@ time_range = [5, 24] # Second number not included (i.e. [6, 8] -> from 6:00:00 t
 min_points_in_traj = 10 # Minimum number of points in a trajectory for it to be considered in the calculations
 min_trips_for_clustering = 5 # Minimum number of trips/trajectories in the route+dir set for the clustering and analysis to happen
 discard_if_several_clusters = False # Whether the program should discard the route+dirs for which clustering has yield to more than 1 cluster (not counting outliers)
-export_intermediate_to_csv = True # Whether to export the intermediate files (such as cluster_assignments and joined) to CSVs
+export_intermediate_to_csv = False # Whether to export the intermediate files (such as cluster_assignments and joined) to CSVs
+verbose = False # Print (some) information about completed operations on the console. Some important stuff will be printed anyway.
 
 # Parameters for the DBSCAN for the process "split by route+dir and cluster"
 global_eps_percentile = 15 # Note: eps_percentile is the percentage in full numbers (e.g. 0.5 is 0.5%, NOT 50%)
@@ -33,7 +34,8 @@ def format_data(df):
     # Select all trip IDs (1 per trajectory) and put them in a list
     trip_ids_all = df.select(pl.col('trip_id')).unique().sort('trip_id').to_series().to_list()
     trip_ids_all = [x for x in trip_ids_all if x is not None]
-    print("Trip IDs considered:", trip_ids_all)
+    if verbose:
+        print("Trip IDs considered:", trip_ids_all)
 
     trip_ids = []
     # Format coordinates points to numpy arrays, 1 per traj, and put them in a list
@@ -68,7 +70,7 @@ def cluster_trips_dbscan(trip_coords_list, eps=None, eps_percentile=0.5, min_sam
     if len(trip_coords_list) < 2:
         return np.array([], dtype=int), np.array([])
 
-    sspd_dist = tdist.pdist(trip_coords_list, metric="sspd", verbose=True)
+    sspd_dist = tdist.pdist(trip_coords_list, metric="sspd", verbose=verbose)
     n = len(trip_coords_list)
     dist_matrix = np.zeros((n, n), dtype=float)
     upper_idx = np.triu_indices(n, k=1)
@@ -84,6 +86,7 @@ def cluster_trips_dbscan(trip_coords_list, eps=None, eps_percentile=0.5, min_sam
 
 # Merge VehiclePositions and Clusters dataframes and export to a GeoPackage (.gpkg) for QGIS
 def export_to_gpkg(df_vehiclepositions, df_clusters):
+    print("Now exporting to .gpkg file...")
     merged = df_vehiclepositions.join(df_clusters, how='left', on='trip_id')
     # Don't use datapoints which don't have any cluster
     merged = merged.filter(pl.col("cluster").is_not_null())
@@ -104,7 +107,8 @@ def export_to_gpkg(df_vehiclepositions, df_clusters):
         print(f"Wrote joined CSV: {out_path} (rows={len(merged)})")
 
     categories = merged['route_dir_cluster'].unique().sort().to_list()
-    print(f"Found {len(categories)} cluster(s): {categories}")
+    if verbose:
+        print(f"Found {len(categories)} cluster(s): {categories}")
 
     all_gdfs = {}
     for i, cat_value in enumerate(categories):
@@ -121,7 +125,8 @@ def export_to_gpkg(df_vehiclepositions, df_clusters):
         # Write mode: overwrite on first layer, append on the rest
         write_mode = "w" if i == 0 else "a"
         gdf.to_file(output_points_gpkg, layer=cat_value, driver="GPKG", mode=write_mode)
-        print(f"Layer '{cat_value}': written ({len(gdf)} rows)")
+        if verbose:
+            print(f"Layer '{cat_value}': written ({len(gdf)} rows)")
 
         # PATHS GEOPACKAGE
         if paths_gpkg:
@@ -154,7 +159,7 @@ def export_to_gpkg(df_vehiclepositions, df_clusters):
                 mode="w" if i == 0 else "a"
             )
 
-    print("In QGIS: Layer -> Add Layer -> Add Vector Layer, then select the .gpkg file.")
+    print("GPKG export done! In QGIS: Layer -> Add Layer -> Add Vector Layer, then select the .gpkg file.")
 
 
 def comparison(df, comparison_type="routes"):
@@ -175,8 +180,8 @@ def comparison(df, comparison_type="routes"):
             print(f"{hour:02d}:00–{hour+1:02d}:00 => {len(df_hour)} rows")
 
             _, trip_coords_list, _, _ = format_data(df_hour)
-            sspd = tdist.pdist(trip_coords_list, metric="sspd", verbose=True)
-            dfd = tdist.pdist(trip_coords_list, metric="discret_frechet", verbose=True)
+            sspd = tdist.pdist(trip_coords_list, metric="sspd", verbose=verbose)
+            dfd = tdist.pdist(trip_coords_list, metric="discret_frechet", verbose=verbose)
             results.append(quick_analysis(sspd, measure="sspd", name=f"{date} {hour:02d}h"))
             results.append(quick_analysis(dfd, measure="dfd", name=f"{date} {hour:02d}h"))
 
@@ -191,13 +196,15 @@ def comparison(df, comparison_type="routes"):
             direction_values = df_route.select(pl.col("direction_id")).unique().to_series().to_list()
             for direction in direction_values:
                 df_direction = df_route.filter(pl.col("direction_id") == direction)
-                print(f"route_short_name: {route}, direction_id: {direction}, nb of rows: {len(df_direction)}")
+                if verbose:
+                    print(f"route_short_name: {route}, direction_id: {direction}, nb of rows: {len(df_direction)}")
                 trip_ids, trip_coords_list, _, _ = format_data(df_direction)
                 if len(trip_ids) >= min_trips_for_clustering:
                     labels, _, eps = cluster_trips_dbscan(trip_coords_list, eps_percentile=global_eps_percentile, min_samples=global_min_samples)
                     uniq, counts = np.unique(labels, return_counts=True)
                     nb_clusters = len(uniq[uniq!=-1]) if len(uniq)>0 else 0
-                    print('p', global_eps_percentile, 'eps', eps, 'clusters', nb_clusters, 'noise', counts[uniq==-1][0] if -1 in uniq else 0, 'labelcounts', list(zip(uniq, counts)))
+                    if verbose:
+                        print('p', global_eps_percentile, 'eps', eps, 'clusters', nb_clusters, 'noise', counts[uniq==-1][0] if -1 in uniq else 0, 'labelcounts', list(zip(uniq, counts)))
                     if nb_clusters > 1 and discard_if_several_clusters:
                         routedirs_count[1] += 1
                         print(f"Discarding route {route}, direction {direction} since it had {nb_clusters} clusters and parameter discard_if_several_clusters is set to True.")
@@ -217,8 +224,9 @@ def comparison(df, comparison_type="routes"):
                                 continue
                             _, trip_coords_list_cluster, _, _ = format_data(df_direction.join(df_clusters_cluster, on="trip_id", how="left"))
                             routedirs_count[0] += 1
-                            sspd = tdist.pdist(trip_coords_list_cluster, metric="sspd", verbose=True)
-                            dfd = tdist.pdist(trip_coords_list_cluster, metric="discret_frechet", verbose=True)
+                            print(f"Now calculating distances for route {route}, direction {direction}, cluster {cluster}...")
+                            sspd = tdist.pdist(trip_coords_list_cluster, metric="sspd", verbose=verbose)
+                            dfd = tdist.pdist(trip_coords_list_cluster, metric="discret_frechet", verbose=verbose)
                             results.append(quick_analysis(sspd, measure="sspd", name=f"{date} route_{route}_dir_{direction}_cluster_{cluster}"))
                             results.append(quick_analysis(dfd, measure="dfd", name=f"{date} route_{route}_dir_{direction}_cluster_{cluster}"))
                 else:
@@ -258,8 +266,8 @@ def comparison(df, comparison_type="routes"):
 
                 cluster_trajs = [trip_coords_list[i] for i in range(len(trip_coords_list)) if labels[i] == label]
                 #print(cluster_trajs)
-                sspd = tdist.pdist(cluster_trajs, metric="sspd", verbose=True)
-                dfd = tdist.pdist(cluster_trajs, metric="discret_frechet", verbose=True)
+                sspd = tdist.pdist(cluster_trajs, metric="sspd", verbose=verbose)
+                dfd = tdist.pdist(cluster_trajs, metric="discret_frechet", verbose=verbose)
                 results.append(quick_analysis(sspd, measure="sspd", name=f"{date} cluster_{label}_size_{count}"))
                 results.append(quick_analysis(dfd, measure="dfd", name=f"{date} cluster_{label}_size_{count}"))
 
