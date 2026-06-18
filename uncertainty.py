@@ -20,8 +20,8 @@ export_intermediate_to_csv = False # Whether to export the intermediate files (s
 verbose = False # Print (some) information about completed operations on the console. Some important stuff will be printed anyway.
 
 # Parameters for the DBSCAN for the process "split by route+dir and cluster"
-global_eps_percentile = 15 # Note: eps_percentile is the percentage in full numbers (e.g. 0.5 is 0.5%, NOT 50%)
-global_min_samples = 5
+global_eps_percentile = 12 # Note: eps_percentile is the percentage in full numbers (e.g. 0.5 is 0.5%, NOT 50%)
+global_min_samples = 4
 
 paths_gpkg = True # Whether you also want a 2nd GPKG file with paths instead of points
 
@@ -86,7 +86,7 @@ def cluster_trips_dbscan(trip_coords_list, eps=None, eps_percentile=0.5, min_sam
 
 # Merge VehiclePositions and Clusters dataframes and export to a GeoPackage (.gpkg) for QGIS
 def export_to_gpkg(df_vehiclepositions, df_clusters):
-    print("Now exporting to .gpkg file...")
+    print("Now exporting to .gpkg file(s)...")
     merged = df_vehiclepositions.join(df_clusters, how='left', on='trip_id')
     # Don't use datapoints which don't have any cluster
     merged = merged.filter(pl.col("cluster").is_not_null())
@@ -222,7 +222,7 @@ def comparison(df, comparison_type="routes"):
                                 print(f"Discarding route {route}, direction {direction}, cluster {cluster} since there are only {df_clusters_cluster.shape[0]} trips in the main cluster.")
                                 results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "len": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
                                 continue
-                            _, trip_coords_list_cluster, _, _ = format_data(df_direction.join(df_clusters_cluster, on="trip_id", how="left"))
+                            _, trip_coords_list_cluster, _, _ = format_data(df_direction.join(df_clusters_cluster, on="trip_id", how="left").filter(pl.col("cluster") == cluster))
                             routedirs_count[0] += 1
                             print(f"Now calculating distances for route {route}, direction {direction}, cluster {cluster}...")
                             sspd = tdist.pdist(trip_coords_list_cluster, metric="sspd", verbose=verbose)
