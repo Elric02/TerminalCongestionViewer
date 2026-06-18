@@ -1,9 +1,3 @@
-#TODO: Improve speed of paths layer output (what takes time is writing on the file at each iteration)
-#TODO: Fix discarding outliers
-#TODO: Treat cases with nb_clusters > 1 (and discard_if_several_clusters==False) as separate clusters
-#TODO: Idea: use multiple DBSCAN with different parameters, analyse the results?
-
-
 import polars as pl
 import traj_dist.distance as tdist
 import numpy as np
@@ -11,6 +5,7 @@ from datetime import datetime
 from sklearn.cluster import DBSCAN
 import geopandas as gpd
 from shapely.geometry import Point, LineString
+import pandas as pd
 
 
 terminal = "linköping"
@@ -27,7 +22,7 @@ export_intermediate_to_csv = True # Whether to export the intermediate files (su
 global_eps_percentile = 15 # Note: eps_percentile is the percentage in full numbers (e.g. 0.5 is 0.5%, NOT 50%)
 global_min_samples = 5
 
-paths_gpkg = False # Whether you also want a 2nd GPKG file with paths instead of points
+paths_gpkg = True # Whether you also want a 2nd GPKG file with paths instead of points
 
 
 def get_data():
@@ -111,6 +106,7 @@ def export_to_gpkg(df_vehiclepositions, df_clusters):
     categories = merged['route_dir_cluster'].unique().sort().to_list()
     print(f"Found {len(categories)} cluster(s): {categories}")
 
+    all_gdfs = {}
     for i, cat_value in enumerate(categories):
         subset = merged.filter(pl.col("route_dir_cluster") == cat_value)
         pandas_df = subset.to_pandas()
@@ -130,29 +126,34 @@ def export_to_gpkg(df_vehiclepositions, df_clusters):
         # PATHS GEOPACKAGE
         if paths_gpkg:
             output_lines_gpkg = f"output/geopackage_{terminal}_{date}_paths.gpkg"
-            trips_list = merged["trip_id"].unique().sort().to_list()
-            for trip_nr, trip in enumerate(trips_list):
-                if trip_nr%5 == 0: print("Trip", trip_nr, "/", len(trips_list))
-                subset2 = merged.filter(pl.col("trip_id") == trip)
+            trips_list = subset["trip_id"].unique().sort().to_list()
+            trajectory_gdfs = []
+            for j, trip in enumerate(trips_list):
+                subset2 = subset.filter(pl.col("trip_id") == trip)
                 pandas_df = subset2.to_pandas()
                 coords = list(zip(pandas_df["longitude"], pandas_df["latitude"]))
                 if len(coords) >= 2:
                     line = LineString(coords)
-                    trajectory_gdf = gpd.GeoDataFrame(
-                        {
-                            "route_dir_cluster": [cat_value],
-                            "n_points": [len(coords)],
-                        },
+                    trajectory_gdfs.append(gpd.GeoDataFrame(
+                        {"route_dir_cluster": [cat_value], "n_points": [len(coords)]},
                         geometry=[line],
                         crs="EPSG:4326"
-                    )
-                    trajectory_gdf.to_file(
-                        output_lines_gpkg,
-                        layer=cat_value,
-                        driver="GPKG",
-                        mode="w" if i == 0 else "a"
-                )
- 
+                    ))
+            combined_gdf = gpd.GeoDataFrame(pd.concat(trajectory_gdfs, ignore_index=True), crs="EPSG:4326")
+            if cat_value not in all_gdfs:
+                all_gdfs[cat_value] = combined_gdf
+            else:
+                all_gdfs[cat_value] = gpd.GeoDataFrame(pd.concat([all_gdfs[cat_value], combined_gdf], ignore_index=True), crs="EPSG:4326")
+    
+    if paths_gpkg:
+        for i, (layer_name, gdf) in enumerate(all_gdfs.items()):
+            gdf.to_file(
+                output_lines_gpkg,
+                layer=layer_name,
+                driver="GPKG",
+                mode="w" if i == 0 else "a"
+            )
+
     print("In QGIS: Layer -> Add Layer -> Add Vector Layer, then select the .gpkg file.")
 
 
