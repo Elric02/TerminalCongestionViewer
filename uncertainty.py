@@ -20,11 +20,11 @@ providers = ["otraf"] # Attention: if there are several operators, they must be 
 time_range = [5, 24] # Second number not included (i.e. [6, 8] -> from 6:00:00 to 7:59:59)
 min_points_in_traj = 10 # Minimum number of points in a trajectory for it to be considered in the calculations
 min_trips_for_clustering = 5 # Minimum number of trips/trajectories in the route+dir set for the clustering and analysis to happen
-discard_if_several_clusters = True # Whether the program should discard the route+dirs for which clustering has yield to more than 1 cluster (not counting outliers)
+discard_if_several_clusters = False # Whether the program should discard the route+dirs for which clustering has yield to more than 1 cluster (not counting outliers)
 export_intermediate_to_csv = True # Whether to export the intermediate files (such as cluster_assignments and joined) to CSVs
 
 # Parameters for the DBSCAN for the process "split by route+dir and cluster"
-global_eps_percentile = 20 # Note: eps_percentile is the percentage in full numbers (e.g. 0.5 is 0.5%, NOT 50%)
+global_eps_percentile = 15 # Note: eps_percentile is the percentage in full numbers (e.g. 0.5 is 0.5%, NOT 50%)
 global_min_samples = 5
 
 paths_gpkg = False # Whether you also want a 2nd GPKG file with paths instead of points
@@ -202,25 +202,24 @@ def comparison(df, comparison_type="routes"):
                         print(f"Discarding route {route}, direction {direction} since it had {nb_clusters} clusters and parameter discard_if_several_clusters is set to True.")
                         results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "len": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
                     else:
-                        df_clusters_temp = pl.DataFrame({"trip_id": trip_ids, "cluster": labels})
-                        df_clusters = pl.concat([df_clusters, df_clusters_temp])
-                        '''
-                        print(df_clusters.filter(pl.col("cluster") == 0))
-                        exit()
-                        _, trip_coords_list_cluster0, _, _ = format_data(df_clusters.filter(pl.col("cluster") == 0))
-                        if len(trip_coords_list_cluster0) < 1:
-                            routedirs_count[2] += 1
-                            print(f"Discarding route {route}, direction {direction} since there are only {len(trip_coords_list_cluster0)} trips in the main cluster.")
-                            results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "len": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
-                            continue
-                        routedirs_count[0] += 1
-                        sspd = tdist.pdist(trip_coords_list_cluster0, metric="sspd", verbose=True)
-                        dfd = tdist.pdist(trip_coords_list_cluster0, metric="discret_frechet", verbose=True)
-                        '''
-                        sspd = tdist.pdist(trip_coords_list, metric="sspd", verbose=True)
-                        dfd = tdist.pdist(trip_coords_list, metric="discret_frechet", verbose=True)
-                        results.append(quick_analysis(sspd, measure="sspd", name=f"{date} route_{route}_dir_{direction}"))
-                        results.append(quick_analysis(dfd, measure="dfd", name=f"{date} route_{route}_dir_{direction}"))
+                        # DF of trip IDs linked to cluster labels, for this route+dir
+                        df_clusters_dir = pl.DataFrame({"trip_id": trip_ids, "cluster": labels})
+                        # Append it to the main DF of trip IDs linked to cluster labels
+                        df_clusters = pl.concat([df_clusters, df_clusters_dir])
+                        # Now, we work with combination route+direction+cluster
+                        for cluster in range(nb_clusters):
+                            df_clusters_cluster = df_clusters.filter(pl.col("cluster") == cluster)
+                            if df_clusters_cluster.shape[0] <= 1:
+                                routedirs_count[2] += 1
+                                print(f"Discarding route {route}, direction {direction}, cluster {cluster} since there are only {df_clusters_cluster.shape[0]} trips in the main cluster.")
+                                results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "len": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
+                                continue
+                            _, trip_coords_list_cluster, _, _ = format_data(df_direction.join(df_clusters_cluster, on="trip_id", how="left"))
+                            routedirs_count[0] += 1
+                            sspd = tdist.pdist(trip_coords_list_cluster, metric="sspd", verbose=True)
+                            dfd = tdist.pdist(trip_coords_list_cluster, metric="discret_frechet", verbose=True)
+                            results.append(quick_analysis(sspd, measure="sspd", name=f"{date} route_{route}_dir_{direction}_cluster_{cluster}"))
+                            results.append(quick_analysis(dfd, measure="dfd", name=f"{date} route_{route}_dir_{direction}_cluster_{cluster}"))
                 else:
                     routedirs_count[3] += 1
                     print(f"Not enough trajectories for route {route}, direction {direction} to calculate distance measures. Try changing the min_trips_for_clustering (current value: {min_trips_for_clustering}) parameter if you believe this is a mistake.")
