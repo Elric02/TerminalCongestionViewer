@@ -190,7 +190,7 @@ def comparison(df, comparison_type="routes"):
         route_values = df.select(pl.col("route_short_name")).unique().to_series().to_list()
         df_clusters = pl.DataFrame(schema={"trip_id": pl.Utf8, "cluster": pl.Int64})
         routedirs_count = [0, 0, 0, 0]
-        for route in route_values:
+        for iter_id, route in enumerate(route_values):
             df_route = df.filter(pl.col("route_short_name") == route)
             direction_values = df_route.select(pl.col("direction_id")).unique().to_series().to_list()
             for direction in direction_values:
@@ -223,7 +223,7 @@ def comparison(df, comparison_type="routes"):
                                 continue
                             _, trip_coords_list_cluster, _, _ = format_data(df_direction.join(df_clusters_cluster, on="trip_id", how="left").filter(pl.col("cluster") == cluster))
                             routedirs_count[0] += 1
-                            print(f"Now calculating distances for route {route}, direction {direction}, cluster {cluster}...")
+                            print(f"(route {iter_id}/{len(route_values)}) Now calculating distances for route {route}, direction {direction}, cluster {cluster}...")
                             sspd = tdist.pdist(trip_coords_list_cluster, metric="sspd", verbose=verbose)
                             dfd = tdist.pdist(trip_coords_list_cluster, metric="discret_frechet", verbose=verbose)
                             results.append(quick_analysis(sspd, measure="sspd", name=f"{date} route_{route}_dir_{direction}_cluster_{cluster}"))
