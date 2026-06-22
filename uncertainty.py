@@ -8,28 +8,11 @@ from shapely.geometry import Point, LineString
 import pandas as pd
 
 
-terminal = "linköping"
-date = "2022-03-22"
-providers = ["otraf"] # Attention: if there are several operators, they must be in the same order than in the filename!
-time_range = [5, 24] # (Only used in hourly comparison) Second number not included (i.e. [6, 8] -> from 6:00:00 to 7:59:59)
-min_points_in_traj = 10 # Minimum number of points in a trajectory for it to be considered in the calculations
-min_trips_for_clustering = 5 # Minimum number of trips/trajectories in the route+dir set for the clustering and analysis to happen
-discard_if_several_clusters = False # Whether the program should discard the route+dirs for which clustering has yield to more than 1 cluster (not counting outliers)
-export_intermediate_to_csv = False # Whether to export the intermediate files (such as cluster_assignments and joined) to CSVs
-verbose = False # Print (some) information about completed operations on the console. Some important stuff will be printed anyway.
-
-# Parameters for the DBSCAN for the process "split by route+dir and cluster"
-global_eps_percentile = 12 # Note: eps_percentile is the percentage in full numbers (e.g. 0.5 is 0.5%, NOT 50%)
-global_min_samples = 4
-
-paths_gpkg = True # Whether you also want a 2nd GPKG file with paths instead of points
-
-
-def get_data():
+def get_data(terminal, providers, date):
     df = pl.read_csv(f"output/vehiclepositions_terminal_{terminal}_{("_".join(providers))}_{date}.csv", schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8})
     return df
 
-def format_data(df):
+def format_data(df, min_points_in_traj, verbose):
     # Select all trip IDs (1 per trajectory) and put them in a list
     trip_ids_all = df.select(pl.col('trip_id')).unique().sort('trip_id').to_series().to_list()
     trip_ids_all = [x for x in trip_ids_all if x is not None]
@@ -65,7 +48,7 @@ def quick_analysis(data, measure="", name=""):
 
 
 # Note: eps_percentile is the percentage in full numbers (e.g. 0.5 is 0.5%, NOT 50%)
-def cluster_trips_dbscan(trip_coords_list, eps=None, eps_percentile=0.5, min_samples=2):
+def cluster_trips_dbscan(trip_coords_list, eps=None, eps_percentile=0.5, min_samples=2, verbose=False):
     if len(trip_coords_list) < 2:
         return np.array([], dtype=int), np.array([])
 
@@ -84,7 +67,7 @@ def cluster_trips_dbscan(trip_coords_list, eps=None, eps_percentile=0.5, min_sam
 
 
 # Merge VehiclePositions and Clusters dataframes and export to a GeoPackage (.gpkg) for QGIS
-def export_to_gpkg(df_vehiclepositions, df_clusters):
+def export_to_gpkg(df_vehiclepositions, df_clusters, terminal, date, export_intermediate_to_csv, verbose, paths_gpkg):
     print("Now exporting to .gpkg file(s)...")
     merged = df_vehiclepositions.join(df_clusters, how='left', on='trip_id')
     # Don't use datapoints which don't have any cluster
@@ -161,7 +144,9 @@ def export_to_gpkg(df_vehiclepositions, df_clusters):
     print("GPKG export done! In QGIS: Layer -> Add Layer -> Add Vector Layer, then select the .gpkg file.")
 
 
-def comparison(df, comparison_type="routes"):
+def comparison(df, comparison_type, terminal, date, time_range, min_points_in_traj, min_trips_for_clustering,
+                    discard_if_several_clusters, export_intermediate_to_csv, verbose,
+                    dbscan_global_eps_percentile, dbscan_global_min_samples, paths_gpkg):
     results = []
 
     if comparison_type == "hours":
@@ -178,7 +163,7 @@ def comparison(df, comparison_type="routes"):
             )
             print(f"{hour:02d}:00–{hour+1:02d}:00 => {len(df_hour)} rows")
 
-            _, trip_coords_list, _, _ = format_data(df_hour)
+            _, trip_coords_list, _, _ = format_data(df_hour, min_points_in_traj, verbose)
             sspd = tdist.pdist(trip_coords_list, metric="sspd", verbose=verbose)
             dfd = tdist.pdist(trip_coords_list, metric="discret_frechet", verbose=verbose)
             results.append(quick_analysis(sspd, measure="sspd", name=f"{date} {hour:02d}h"))
@@ -197,13 +182,13 @@ def comparison(df, comparison_type="routes"):
                 df_direction = df_route.filter(pl.col("direction_id") == direction)
                 if verbose:
                     print(f"route_short_name: {route}, direction_id: {direction}, nb of rows: {len(df_direction)}")
-                trip_ids, trip_coords_list, _, _ = format_data(df_direction)
+                trip_ids, trip_coords_list, _, _ = format_data(df_direction, min_points_in_traj, verbose)
                 if len(trip_ids) >= min_trips_for_clustering:
-                    labels, _, eps = cluster_trips_dbscan(trip_coords_list, eps_percentile=global_eps_percentile, min_samples=global_min_samples)
+                    labels, _, eps = cluster_trips_dbscan(trip_coords_list, eps_percentile=dbscan_global_eps_percentile, min_samples=dbscan_global_min_samples, verbose=verbose)
                     uniq, counts = np.unique(labels, return_counts=True)
                     nb_clusters = len(uniq[uniq!=-1]) if len(uniq)>0 else 0
                     if verbose:
-                        print('p', global_eps_percentile, 'eps', eps, 'clusters', nb_clusters, 'noise', counts[uniq==-1][0] if -1 in uniq else 0, 'labelcounts', list(zip(uniq, counts)))
+                        print('p', dbscan_global_eps_percentile, 'eps', eps, 'clusters', nb_clusters, 'noise', counts[uniq==-1][0] if -1 in uniq else 0, 'labelcounts', list(zip(uniq, counts)))
                     if nb_clusters > 1 and discard_if_several_clusters:
                         routedirs_count[1] += 1
                         print(f"Discarding route {route}, direction {direction} since it had {nb_clusters} clusters and parameter discard_if_several_clusters is set to True.")
@@ -221,9 +206,9 @@ def comparison(df, comparison_type="routes"):
                                 print(f"Discarding route {route}, direction {direction}, cluster {cluster} since there are only {df_clusters_cluster.shape[0]} trips in the main cluster.")
                                 results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "len": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
                                 continue
-                            _, trip_coords_list_cluster, _, _ = format_data(df_direction.join(df_clusters_cluster, on="trip_id", how="left").filter(pl.col("cluster") == cluster))
+                            _, trip_coords_list_cluster, _, _ = format_data(df_direction.join(df_clusters_cluster, on="trip_id", how="left").filter(pl.col("cluster") == cluster), min_points_in_traj, verbose)
                             routedirs_count[0] += 1
-                            print(f"(route {iter_id}/{len(route_values)}) Now calculating distances for route {route}, direction {direction}, cluster {cluster}...")
+                            print(f"(route {iter_id+1}/{len(route_values)}) Now calculating distances for route {route}, direction {direction}, cluster {cluster}...")
                             sspd = tdist.pdist(trip_coords_list_cluster, metric="sspd", verbose=verbose)
                             dfd = tdist.pdist(trip_coords_list_cluster, metric="discret_frechet", verbose=verbose)
                             results.append(quick_analysis(sspd, measure="sspd", name=f"{date} route_{route}_dir_{direction}_cluster_{cluster}"))
@@ -236,17 +221,17 @@ def comparison(df, comparison_type="routes"):
             out_path = f'output/cluster_assignments_{terminal}_{date}.csv'
             df_clusters.write_csv(out_path)
             print(f"Wrote clusters CSV: {out_path} (rows={len(df_clusters)})")
-        export_to_gpkg(df, df_clusters)
+        export_to_gpkg(df, df_clusters, terminal, date, export_intermediate_to_csv, verbose, paths_gpkg)
         print("Route+dirs... kept:", routedirs_count[0], ", discarded because of multiple clusters:", routedirs_count[1], ", discarded because of too few trajs in main cluster:", routedirs_count[2], ", discarded because too few trajectories in general:", routedirs_count[3])
         
         
     if comparison_type == "clustered":
-        trip_ids, trip_coords_list, _, _ = format_data(df)
+        trip_ids, trip_coords_list, _, _ = format_data(df, min_points_in_traj, verbose)
         if len(trip_ids) < 2:
             print(f"Not enough trajectories to cluster and calculate distance measures.")
             results.append({"measure": "None", "name": f"{date} clustered", "len": 0, "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
         else:
-            labels, _, _ = cluster_trips_dbscan(trip_coords_list)
+            labels, _, _ = cluster_trips_dbscan(trip_coords_list, verbose=verbose)
             # Export cluster assignments for each trip
             try:
                 df_clusters = pl.DataFrame({"trip_id": trip_ids, "cluster": labels})
@@ -274,7 +259,48 @@ def comparison(df, comparison_type="routes"):
     return results_df
 
 
-data = get_data()
+def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in_traj=10, min_trips_for_clustering=5,
+                    discard_if_several_clusters=False, export_intermediate_to_csv=False, export_final_to_csv=True, verbose=False,
+                    dbscan_global_eps_percentile=12, dbscan_global_min_samples=4, paths_gpkg=True):
+    """Get the imprecision value(s) for the desired location and timeframe
 
-results_df = comparison(data, comparison_type="routes") # comparison_type is "hours", "routes" or "clustered"
-results_df.write_csv(f'output/uncertainty_comparison_{terminal}_{date}.csv')
+    :param terminal: The desired terminal name
+    :type terminal: str
+    :param date: The desired date in format "YYYY-MM-DD"
+    :type date: str
+    :param providers: The list of desired provider codes (e.g. ["otraf", "sl"]). Attention: if there are several operators, they must be in the same order than in the filename! All codes here:
+        https://www.trafiklab.se/api/gtfs-datasets/gtfs-regional#operators-covered-by-this-dataset
+    :type providers: list[str]
+    :param time_range: 2-element-list: (Only used in time comparison) start and beginning of desired time frame (e.g. `[5, 24]` -> only 1 timeframe, from 05:00:00 to 23:59:59 both included)
+    :type time_range: list[int]
+    :param min_points_in_traj: Minimum number of points in a trajectory for it to be considered in the calculations
+    :type min_points_in_traj: int
+    :param min_trips_for_clustering: Minimum number of trips/trajectories in the route+dir set for the clustering and analysis to happen
+    :type min_trips_for_clustering: int
+    :param discard_if_several_clusters: Whether the program should discard the route+dirs for which clustering has yield to more than 1 cluster (not counting outliers)
+    :type discard_if_several_clusters: Boolean
+    :param export_intermediate_to_csv: Whether to export the intermediate files (such as cluster_assignments and joined) to CSVs
+    :type export_intermediate_to_csv: Boolean
+    :param export_final_to_csv: Whether to export the final imprecision matrix to a CSV
+    :type export_final_to_csv: Boolean
+    :param verbose: Print (some) information about completed operations on the console. Some important stuff will be printed anyway
+    :type verbose: Boolean
+    :param dbscan_global_eps_percentile: Parameter for the DBSCAN for the process "split by route+dir and cluster". Note: eps_percentile is the percentage in full numbers (e.g. 0.5 is 0.5%, NOT 50%)
+    :type dbscan_global_eps_percentile: float
+    :param dbscan_global_min_samples: Parameter for the DBSCAN for the process "split by route+dir and cluster"
+    :type dbscan_global_min_samples: int
+    :param paths_gpkg: Whether you also want a 2nd GPKG file with paths instead of points
+    :type paths_gpkg: Boolean
+    :return: Dict containing the imprecision results
+    """
+    data = get_data(terminal, providers, date)
+    # comparison_type is "hours", "routes" or "clustered"
+    results_df = comparison(data, comparison_type="routes", terminal=terminal, date=date, time_range=time_range, min_points_in_traj=min_points_in_traj,
+                            min_trips_for_clustering=min_trips_for_clustering, discard_if_several_clusters=discard_if_several_clusters,
+                            export_intermediate_to_csv=export_intermediate_to_csv, verbose=verbose, dbscan_global_eps_percentile=dbscan_global_eps_percentile,
+                            dbscan_global_min_samples=dbscan_global_min_samples, paths_gpkg=paths_gpkg)
+    if export_final_to_csv:
+        results_df.write_csv(f'output/uncertainty_comparison_{terminal}_{date}.csv')
+
+
+get_imprecision("linköping", "2022-03-22", ["otraf"])
