@@ -1,5 +1,8 @@
 import polars as pl
 import koda_lib
+import json
+import os
+from datetime import datetime
 
 
 # PARAMETERS
@@ -15,6 +18,17 @@ import_method = "online" # "online" for download from KoDa or "local" if files a
 delete_tempdata = True # Whether to delete all GTFS data from the tempdata folder after the operation is completed.
 
 # FUNCTIONS
+
+def export_results(results):
+    """Export a dictionary to a text file, creating the file and output directory if needed."""
+
+    file_path = f"output/results_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt"
+
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    with open(file_path, "w", encoding="utf-8") as out_file:
+        json.dump(results, out_file, indent=2, ensure_ascii=False)
+
+
 def process_terminal(terminal_coordinates_df, terminal_name):
     print("Now starting", terminal_name)
     # Get the coordinates of the terminal to process
@@ -42,4 +56,5 @@ def process_terminal(terminal_coordinates_df, terminal_name):
 #print("Terminals to process:", terminal_names)
 #for terminal_name in terminal_names:
 #    process_terminal(terminal_coordinates_df, terminal_name)
-koda_lib.import_timeframe("otraf", "2026-06-08", [[[6, 0, 0], [7, 59, 59]]], import_method="online", export_type="csv", export_name="output/vehiclepositions_terminal_linköping_otraf_2026-06-08.csv", delete_tempdata=True)
+test_results = {"module1": {"test_results": 42}, "module2": {"test_results": 69}}
+export_results(test_results)

@@ -11,8 +11,7 @@ import pandas as pd
 terminal = "linköping"
 date = "2022-03-22"
 providers = ["otraf"] # Attention: if there are several operators, they must be in the same order than in the filename!
-# Only used in hour_comparison()
-time_range = [5, 24] # Second number not included (i.e. [6, 8] -> from 6:00:00 to 7:59:59)
+time_range = [5, 24] # (Only used in hourly comparison) Second number not included (i.e. [6, 8] -> from 6:00:00 to 7:59:59)
 min_points_in_traj = 10 # Minimum number of points in a trajectory for it to be considered in the calculations
 min_trips_for_clustering = 5 # Minimum number of trips/trajectories in the route+dir set for the clustering and analysis to happen
 discard_if_several_clusters = False # Whether the program should discard the route+dirs for which clustering has yield to more than 1 cluster (not counting outliers)
