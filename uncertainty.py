@@ -44,7 +44,7 @@ def format_data(df, min_points_in_traj, verbose):
 
 
 def quick_analysis(data, measure="", name=""):
-    return {"measure": measure, "name": name, "len": len(data), "mean": np.mean(data), "std": np.std(data), "min": np.min(data), "max": np.max(data), "median": np.median(data)}
+    return {"measure": measure, "name": name, "nb_pairs": len(data), "mean": np.mean(data), "std": np.std(data), "min": np.min(data), "max": np.max(data), "median": np.median(data)}
 
 
 # Note: eps_percentile is the percentage in full numbers (e.g. 0.5 is 0.5%, NOT 50%)
@@ -148,6 +148,7 @@ def comparison(df, comparison_type, terminal, date, time_range, min_points_in_tr
                     discard_if_several_clusters, export_intermediate_to_csv, verbose,
                     dbscan_global_eps_percentile, dbscan_global_min_samples, paths_gpkg):
     results = []
+    routedirs_count = [0, 0, 0, 0]
 
     if comparison_type == "hours":
         for hour in range(time_range[0], time_range[1]):
@@ -174,7 +175,6 @@ def comparison(df, comparison_type, terminal, date, time_range, min_points_in_tr
         df = df.filter(pl.col("route_short_name") != -1)
         route_values = df.select(pl.col("route_short_name")).unique().to_series().to_list()
         df_clusters = pl.DataFrame(schema={"trip_id": pl.Utf8, "cluster": pl.Int64})
-        routedirs_count = [0, 0, 0, 0]
         for iter_id, route in enumerate(route_values):
             df_route = df.filter(pl.col("route_short_name") == route)
             direction_values = df_route.select(pl.col("direction_id")).unique().to_series().to_list()
@@ -192,7 +192,7 @@ def comparison(df, comparison_type, terminal, date, time_range, min_points_in_tr
                     if nb_clusters > 1 and discard_if_several_clusters:
                         routedirs_count[1] += 1
                         print(f"Discarding route {route}, direction {direction} since it had {nb_clusters} clusters and parameter discard_if_several_clusters is set to True.")
-                        results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "len": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
+                        results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "nb_pairs": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
                     else:
                         # DF of trip IDs linked to cluster labels, for this route+dir
                         df_clusters_dir = pl.DataFrame({"trip_id": trip_ids, "cluster": labels})
@@ -204,7 +204,7 @@ def comparison(df, comparison_type, terminal, date, time_range, min_points_in_tr
                             if df_clusters_cluster.shape[0] <= 1:
                                 routedirs_count[2] += 1
                                 print(f"Discarding route {route}, direction {direction}, cluster {cluster} since there are only {df_clusters_cluster.shape[0]} trips in the main cluster.")
-                                results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "len": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
+                                results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "nb_pairs": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
                                 continue
                             _, trip_coords_list_cluster, _, _ = format_data(df_direction.join(df_clusters_cluster, on="trip_id", how="left").filter(pl.col("cluster") == cluster), min_points_in_traj, verbose)
                             routedirs_count[0] += 1
@@ -216,7 +216,7 @@ def comparison(df, comparison_type, terminal, date, time_range, min_points_in_tr
                 else:
                     routedirs_count[3] += 1
                     print(f"Not enough trajectories for route {route}, direction {direction} to calculate distance measures. Try changing the min_trips_for_clustering (current value: {min_trips_for_clustering}) parameter if you believe this is a mistake.")
-                    results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "len": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
+                    results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "nb_pairs": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
         if export_intermediate_to_csv:
             out_path = f'output/cluster_assignments_{terminal}_{date}.csv'
             df_clusters.write_csv(out_path)
@@ -229,7 +229,7 @@ def comparison(df, comparison_type, terminal, date, time_range, min_points_in_tr
         trip_ids, trip_coords_list, _, _ = format_data(df, min_points_in_traj, verbose)
         if len(trip_ids) < 2:
             print(f"Not enough trajectories to cluster and calculate distance measures.")
-            results.append({"measure": "None", "name": f"{date} clustered", "len": 0, "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
+            results.append({"measure": "None", "name": f"{date} clustered", "nb_pairs": 0, "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
         else:
             labels, _, _ = cluster_trips_dbscan(trip_coords_list, verbose=verbose)
             # Export cluster assignments for each trip
@@ -256,7 +256,7 @@ def comparison(df, comparison_type, terminal, date, time_range, min_points_in_tr
                 results.append(quick_analysis(dfd, measure="dfd", name=f"{date} cluster_{label}_size_{count}"))
 
     results_df = pl.DataFrame(results)
-    return results_df
+    return results_df, routedirs_count
 
 
 def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in_traj=10, min_trips_for_clustering=5,
@@ -295,12 +295,32 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
     """
     data = get_data(terminal, providers, date)
     # comparison_type is "hours", "routes" or "clustered"
-    results_df = comparison(data, comparison_type="routes", terminal=terminal, date=date, time_range=time_range, min_points_in_traj=min_points_in_traj,
+    results_df, routedirs_count = comparison(data, comparison_type="routes", terminal=terminal, date=date, time_range=time_range, min_points_in_traj=min_points_in_traj,
                             min_trips_for_clustering=min_trips_for_clustering, discard_if_several_clusters=discard_if_several_clusters,
                             export_intermediate_to_csv=export_intermediate_to_csv, verbose=verbose, dbscan_global_eps_percentile=dbscan_global_eps_percentile,
                             dbscan_global_min_samples=dbscan_global_min_samples, paths_gpkg=paths_gpkg)
     if export_final_to_csv:
         results_df.write_csv(f'output/uncertainty_comparison_{terminal}_{date}.csv')
 
+    # Get pooled mean and pooled standard deviation across rows
+    sspd_results_df = results_df.filter(pl.col("measure") == "sspd")
+    means = sspd_results_df["mean"].to_numpy()
+    stds = sspd_results_df["std"].to_numpy()
+    ns = sspd_results_df["nb_pairs"].to_numpy()
+    pooled_mean = (ns * means).sum() / ns.sum()
+    # Within-group sum of squares: Σ (nᵢ - 1) * sᵢ²
+    within_ss = ((ns - 1) * stds**2).sum()
+    # Between-group sum of squares: Σ nᵢ * (x̄ᵢ - x̄_pooled)²
+    between_ss = (ns * (means - pooled_mean)**2).sum()
+    pooled_std = np.sqrt((within_ss + between_ss) / (ns.sum() - 1))
 
-get_imprecision("linköping", "2022-03-22", ["otraf"])
+    # Intermediate results for calculation of imprecision
+    imprecision_trajs = {
+        "kept": routedirs_count[0],
+        "multiple_clusters": routedirs_count[1],
+        "too_few_trajs_main_cluster": routedirs_count[2],
+        "too_few_trajs_general": routedirs_count[3]
+    }
+
+    print("-- Imprecision calculations done! --")
+    return pooled_mean, pooled_std, imprecision_trajs

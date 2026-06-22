@@ -1,8 +1,10 @@
 import polars as pl
-import koda_lib
 import json
 import os
 from datetime import datetime
+# Local libs
+import koda_lib
+import uncertainty
 
 
 # PARAMETERS
@@ -56,5 +58,6 @@ def process_terminal(terminal_coordinates_df, terminal_name):
 #print("Terminals to process:", terminal_names)
 #for terminal_name in terminal_names:
 #    process_terminal(terminal_coordinates_df, terminal_name)
-test_results = {"module1": {"test_results": 42}, "module2": {"test_results": 69}}
+imprecision_pooled_mean, imprecision_pooled_std, imprecision_trajs = uncertainty.get_imprecision("linköping", "2022-03-22", ["otraf"], paths_gpkg=False)
+test_results = {"imprecision": {"imprecision_val": imprecision_pooled_mean, "imprecision_std": imprecision_pooled_std, "imprecision_trajs": imprecision_trajs}}
 export_results(test_results)
