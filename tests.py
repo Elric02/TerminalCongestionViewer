@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import read_protobuf
-import gtfs_realtime_pb2
+import libs.gtfs_realtime_pb2 as gtfs_realtime_pb2
 
 
 MessageType = gtfs_realtime_pb2.FeedMessage()

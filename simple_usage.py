@@ -3,8 +3,8 @@ import json
 import os
 from datetime import datetime
 # Local libs
-import koda_lib
-import uncertainty
+import modules.gtfs_import as gtfs_import
+import modules.uncertainty as uncertainty
 
 
 # PARAMETERS
@@ -47,17 +47,18 @@ def process_terminal(terminal_coordinates_df, terminal_name):
     total_df_list = []
     # Append to total_df_list the data for each operator
     for provider in providers:
-        total_df_list.append(koda_lib.import_timeframe(provider, date, time_ranges, import_method=import_method, modulo=1, terminal_coordinates=coords, export_type="none", export_name="", delete_tempdata=delete_tempdata))
+        total_df_list.append(gtfs_import.import_timeframe(provider, date, time_ranges, import_method=import_method, modulo=1, terminal_coordinates=coords, export_type="none", export_name="", delete_tempdata=delete_tempdata))
     total_df = pl.concat(total_df_list, how="diagonal_relaxed")
     total_df.write_csv(export_path)
+    imprecision_pooled_mean, imprecision_pooled_std, imprecision_trajs = uncertainty.get_imprecision("linköping", "2022-03-22", ["otraf"], paths_gpkg=False)
+    test_results = {"imprecision": {"imprecision_val": imprecision_pooled_mean, "imprecision_std": imprecision_pooled_std, "imprecision_trajs": imprecision_trajs}}
+    export_results(test_results)
+
 
 # MAIN
-#terminal_coordinates_df = pl.read_csv(terminals_csv)
+terminal_coordinates_df = pl.read_csv(terminals_csv)
 # Get a list of all the (unique) names of the terminals to process
-#terminal_names = terminal_coordinates_df.select(pl.col('terminal')).unique().to_series().to_list()
-#print("Terminals to process:", terminal_names)
-#for terminal_name in terminal_names:
-#    process_terminal(terminal_coordinates_df, terminal_name)
-imprecision_pooled_mean, imprecision_pooled_std, imprecision_trajs = uncertainty.get_imprecision("linköping", "2022-03-22", ["otraf"], paths_gpkg=False)
-test_results = {"imprecision": {"imprecision_val": imprecision_pooled_mean, "imprecision_std": imprecision_pooled_std, "imprecision_trajs": imprecision_trajs}}
-export_results(test_results)
+terminal_names = terminal_coordinates_df.select(pl.col('terminal')).unique().to_series().to_list()
+print("Terminals to process:", terminal_names)
+for terminal_name in terminal_names:
+    process_terminal(terminal_coordinates_df, terminal_name)

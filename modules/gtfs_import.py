@@ -1,10 +1,7 @@
-#TODO (2026-03): update protobuf, see if read_protobuf still works, possibly switch from read_protobuf to something maintained
-
-
 import polars as pl
 import numpy as np
 import read_protobuf
-import gtfs_realtime_pb2 # Local library, no need to install this
+import libs.gtfs_realtime_pb2 as gtfs_realtime_pb2 # Local library, no need to install this
 import math
 import os
 import time
@@ -17,8 +14,8 @@ from datetime import datetime
 
 
 
-def import_timeframe(provider, date, time_ranges, import_method="online", realtimedata_path="tempdata/realtime", staticdata_path="tempdata/static/static_unzipped", modulo=1, terminal_coordinates=None, export_type="none", export_name=None, delete_tempdata=True): 
-    """Import VehiclePositions data from KoDa for the specified timeframe in a specific day
+def koda_import_timeframe(provider, date, time_ranges, import_method="online", realtimedata_path="tempdata/realtime", staticdata_path="tempdata/static/static_unzipped", modulo=1, terminal_coordinates=None, export_type="none", export_name=None, delete_tempdata=True): 
+    """Import VehiclePositions data from the KoDa database for the specified timeframe in a specific day
 
     :param provider: The desired provider code (e.g. otraf, sl, ul...), full list here:
         https://www.trafiklab.se/api/gtfs-datasets/gtfs-regional#operators-covered-by-this-dataset
