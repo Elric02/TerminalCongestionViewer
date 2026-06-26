@@ -28,7 +28,7 @@ mod_uncertainty = True
 def export_results(results):
     """Export a dictionary to a text file, creating the file and output directory if needed."""
 
-    file_path = f"output/results_{date}_{"-".join(str(item) for sublist in time_ranges for subsublist in sublist for item in subsublist)}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt"
+    file_path = f"output/results/results_{date}_{"-".join(str(item) for sublist in time_ranges for subsublist in sublist for item in subsublist)}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt"
 
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     with open(file_path, "w", encoding="utf-8") as out_file:
@@ -56,7 +56,7 @@ def process_terminal(terminal_coordinates_df, terminal_name):
         total_df = pl.concat(total_df_list, how="diagonal_relaxed")
         total_df.write_csv(export_path)
     if mod_uncertainty:
-        imprecision_pooled_mean, imprecision_pooled_std, imprecision_trajs = uncertainty.get_imprecision(terminal_name, date, providers, time_range=[time_ranges[0][0][0], time_ranges[-1][1][0]+1], paths_gpkg=False)
+        imprecision_pooled_mean, imprecision_pooled_std, imprecision_trajs = uncertainty.get_imprecision(terminal_name, date, providers, time_range=[time_ranges[0][0][0], time_ranges[-1][1][0]+1], paths_gpkg=False, dbscan_global_min_samples=3, dbscan_global_eps_percentile=20)
         test_results = {"imprecision": {"imprecision_val": imprecision_pooled_mean, "imprecision_std": imprecision_pooled_std, "imprecision_trajs": imprecision_trajs}}
         export_results(test_results)
 

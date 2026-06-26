@@ -261,7 +261,7 @@ def comparison(df, comparison_type, terminal, date, time_range, min_points_in_tr
 
 def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in_traj=10, min_trips_for_clustering=5,
                     discard_if_several_clusters=False, export_intermediate_to_csv=False, export_final_to_csv=True, verbose=False,
-                    dbscan_global_eps_percentile=12, dbscan_global_min_samples=4, paths_gpkg=True):
+                    dbscan_global_eps_percentile=12, dbscan_global_min_samples=3, paths_gpkg=True):
     """Get the imprecision value(s) for the desired location and timeframe
 
     :param terminal: The desired terminal name
