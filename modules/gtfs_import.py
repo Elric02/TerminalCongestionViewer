@@ -204,7 +204,9 @@ def koda_import_timeframe(provider, date, time_ranges, import_method="online", r
             file_name = export_name
         else:
             file_name = "vehiclepositions_"+provider+"_"+date+".csv"
-        total_df.write_csv("output/"+file_name)
+        directory = "output/vehiclepositions"
+        os.makedirs(directory, exist_ok=True)
+        total_df.write_csv(os.path.join(directory, file_name))
 
     # Remove all data from tempdata folder
     print(datetime.now().strftime("%H:%M:%S"), "Operation completed.")

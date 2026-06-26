@@ -6,10 +6,11 @@ from sklearn.cluster import DBSCAN
 import geopandas as gpd
 from shapely.geometry import Point, LineString
 import pandas as pd
+import os
 
 
 def get_data(terminal, providers, date):
-    df = pl.read_csv(f"output/vehiclepositions_terminal_{terminal}_{("_".join(providers))}_{date}.csv", schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8})
+    df = pl.read_csv(f"output/vehiclepositions/vehiclepositions_terminal_{terminal}_{("_".join(providers))}_{date}.csv", schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8})
     return df
 
 def format_data(df, min_points_in_traj, verbose):
@@ -300,7 +301,9 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
                             export_intermediate_to_csv=export_intermediate_to_csv, verbose=verbose, dbscan_global_eps_percentile=dbscan_global_eps_percentile,
                             dbscan_global_min_samples=dbscan_global_min_samples, paths_gpkg=paths_gpkg)
     if export_final_to_csv:
-        results_df.write_csv(f'output/uncertainty_comparison_{terminal}_{date}.csv')
+        directory = "output/uncertainty"
+        os.makedirs(directory, exist_ok=True)
+        results_df.write_csv(os.path.join(directory, f'uncertainty_comparison_{terminal}_{date}.csv'))
 
     # Get pooled mean and pooled standard deviation across rows
     sspd_results_df = results_df.filter(pl.col("measure") == "sspd")
