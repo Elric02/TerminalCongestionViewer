@@ -10,7 +10,7 @@ import modules.uncertainty as uncertainty
 # PARAMETERS
 #provider = "otraf"
 #terminal_coordinates = [(15.621, 58.416), (15.626, 58.416), (15.621, 58.419), (15.626, 58.419)]
-date = "2024-09-30"
+date = "2024-08-06"
 time_ranges = [
     [[6, 0, 0], [7, 59, 59]]
 ]
@@ -18,13 +18,17 @@ time_ranges = [
 terminals_csv = "terminal_coords.csv"
 import_method = "online" # "online" for download from KoDa or "local" if files are already in the tempdata folder
 delete_tempdata = True # Whether to delete all GTFS data from the tempdata folder after the operation is completed.
+# Enable/disable the different modules here
+mod_koda_import = False
+mod_uncertainty = True
+
 
 # FUNCTIONS
 
 def export_results(results):
     """Export a dictionary to a text file, creating the file and output directory if needed."""
 
-    file_path = f"output/results_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt"
+    file_path = f"output/results_{date}_{"-".join(str(item) for sublist in time_ranges for subsublist in sublist for item in subsublist)}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt"
 
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     with open(file_path, "w", encoding="utf-8") as out_file:
@@ -33,26 +37,28 @@ def export_results(results):
 
 def process_terminal(terminal_coordinates_df, terminal_name):
     print("Now starting", terminal_name)
-    # Get the coordinates of the terminal to process
-    coords = []
-    for col in range(1,7):
-        if terminal_coordinates_df.filter(pl.col('terminal') == terminal_name).select(pl.col('lon'+str(col))).to_series().to_list()[0] is not None:
-            coords.append((terminal_coordinates_df.filter(pl.col('terminal') == terminal_name).select(pl.col('lon'+str(col))).to_series().to_list()[0], terminal_coordinates_df.filter(pl.col('terminal') == terminal_name).select(pl.col('lat'+str(col))).to_series().to_list()[0]))
-    print("Coordinates of the terminal:", coords)
     # Get a list of all the (unique) operators for that terminal
     providers = terminal_coordinates_df.filter(pl.col('terminal') == terminal_name).select(pl.col('provider')).to_series().to_list()
-    # Build the name of the CSV file
-    export_name = "vehiclepositions_terminal_"+terminal_name+"_"+("_".join(providers))+"_"+date+".csv"
-    export_path = "output/"+export_name
-    total_df_list = []
-    # Append to total_df_list the data for each operator
-    for provider in providers:
-        total_df_list.append(gtfs_import.import_timeframe(provider, date, time_ranges, import_method=import_method, modulo=1, terminal_coordinates=coords, export_type="none", export_name="", delete_tempdata=delete_tempdata))
-    total_df = pl.concat(total_df_list, how="diagonal_relaxed")
-    total_df.write_csv(export_path)
-    imprecision_pooled_mean, imprecision_pooled_std, imprecision_trajs = uncertainty.get_imprecision("linköping", "2022-03-22", ["otraf"], paths_gpkg=False)
-    test_results = {"imprecision": {"imprecision_val": imprecision_pooled_mean, "imprecision_std": imprecision_pooled_std, "imprecision_trajs": imprecision_trajs}}
-    export_results(test_results)
+    if mod_koda_import:
+        # Get the coordinates of the terminal to process
+        coords = []
+        for col in range(1,7):
+            if terminal_coordinates_df.filter(pl.col('terminal') == terminal_name).select(pl.col('lon'+str(col))).to_series().to_list()[0] is not None:
+                coords.append((terminal_coordinates_df.filter(pl.col('terminal') == terminal_name).select(pl.col('lon'+str(col))).to_series().to_list()[0], terminal_coordinates_df.filter(pl.col('terminal') == terminal_name).select(pl.col('lat'+str(col))).to_series().to_list()[0]))
+        print("Coordinates of the terminal:", coords)
+        # Build the name of the CSV file
+        export_name = "vehiclepositions_terminal_"+terminal_name+"_"+("_".join(providers))+"_"+date+".csv"
+        export_path = "output/"+export_name
+        total_df_list = []
+        # Append to total_df_list the data for each operator
+        for provider in providers:
+            total_df_list.append(gtfs_import.koda_import_timeframe(provider, date, time_ranges, import_method=import_method, modulo=1, terminal_coordinates=coords, export_type="none", export_name="", delete_tempdata=delete_tempdata))
+        total_df = pl.concat(total_df_list, how="diagonal_relaxed")
+        total_df.write_csv(export_path)
+    if mod_uncertainty:
+        imprecision_pooled_mean, imprecision_pooled_std, imprecision_trajs = uncertainty.get_imprecision(terminal_name, date, providers, time_range=[time_ranges[0][0][0], time_ranges[-1][1][0]+1], paths_gpkg=False)
+        test_results = {"imprecision": {"imprecision_val": imprecision_pooled_mean, "imprecision_std": imprecision_pooled_std, "imprecision_trajs": imprecision_trajs}}
+        export_results(test_results)
 
 
 # MAIN
