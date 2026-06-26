@@ -15,7 +15,7 @@ STATIONS_LIST_CSV_PATH = "weather_stations.csv" # CSV with the list of stations 
 DESIRED_TIMEZONE = "Europe/Stockholm" # Default: "Europe/Stockholm"
 
 # Path for the output CSV containing raw data from SMHI
-# Note on time in the output file: row is up to that time (i.e. 6:00:00 -> data from 5:00:01 to 6:00:00)
+# Note on time in the output file: for amount of precipitation, row is up to that time (i.e. 6:00:00 -> data from 5:00:01 to 6:00:00)
 # Note2: time is in UTC!
 OUTPUT_CSV_RAW = lambda param : f"output/smhi_{param}_{TARGET_YEAR}.csv" if ENTIRE_YEAR else f"output/smhi_{param}_{TARGET_DATE}.csv"
 # Path for the output CSV with analysis of all stations and parameters
