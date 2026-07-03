@@ -47,20 +47,29 @@ def get_alt(
 ):
     """Return the elevation at the given WGS84 coordinates.
 
-    Args:
-        lat: Latitude in decimal degrees.
-        lon: Longitude in decimal degrees.
-        verbose: Whether to print status information.
-        elevation_api: Elevation provider to use. Supported values are "open"
-            for open-elevation.com, "google" for Google Elevation (requires an
-            API key), "geotorget" for Lantmäteriet/Geotorget (Sweden only,
-            requires credentials), or "local" for the local archive file.
-        google_api_key_path: Path to the Google API key file when using the
-            Google provider.
-        geotorget_creds_path: Path to the file containing Geotorget credentials
-            (username and password).
-        local_elevation_path: Path to the local elevation archive file. Leave
-            blank to disable local caching.
+    :param lat: Latitude in decimal degrees.
+    :type lat: float
+    :param lon: Longitude in decimal degrees.
+    :type lon: float
+    :param verbose: Whether to print status information.
+    :type verbose: bool
+    :param elevation_api: Elevation provider to use. Supported values are
+        "open" for open-elevation.com (only works up to a certain latitude), "google" for Google Elevation
+        (requires an API key), "geotorget" for Lantmäteriet/Geotorget
+        (Sweden only, requires credentials), or "local" for the local archive
+        file.
+    :type elevation_api: str
+    :param google_api_key_path: Optional path to the Google API key file when using the
+        Google provider.
+    :type google_api_key_path: str
+    :param geotorget_creds_path: Optional path to the file containing Geotorget
+        credentials (username and password).
+    :type geotorget_creds_path: str
+    :param local_elevation_path: Optional path to the local elevation archive file.
+        Leave blank to disable local caching.
+    :type local_elevation_path: str
+    :return: The elevation in meters at the requested coordinates.
+    :rtype: float
     """
 
     def call_elevation_api(url, params, auth=None, verbose=True):
@@ -203,10 +212,9 @@ def get_hdop(
     lat,
     lon,
     desired_datetime,
-    desired_timezone,
+    desired_timezone="Europe/Stockholm",
     constellation=["GPS", "n", "GN"],
     timestamp=None,
-    alt=None,
     verbose=True,
     visibility_threshold_deg=12,
     elevation_api="geotorget",
@@ -219,32 +227,49 @@ def get_hdop(
     """Estimate the horizontal dilution of precision for a location and time.
 
     The calculation uses broadcast navigation data from CDDIS and a simplified
-    satellite visibility check. Satellites below the configured elevation
-    threshold are ignored, which makes the result suitable for comparing GNSS
-    conditions across locations and times.
+    satellite visibility check.
 
-    Args:
-        lat: Latitude in decimal degrees.
-        lon: Longitude in decimal degrees.
-        desired_datetime: Date and time values in local time as a list of
-            [year, month, day, hour, minute, second].
-        desired_timezone: Time zone for the requested local time.
-        constellation: GNSS constellation descriptor as [name, short_code,
-            filename_code].
-        timestamp: Optional datetime to override the requested time.
-        alt: Optional altitude override; otherwise it is fetched from the
-            configured elevation provider.
-        verbose: Whether to print intermediate information.
-        visibility_threshold_deg: Minimum satellite elevation in degrees for a
-            satellite to be considered visible.
-        elevation_api: Elevation provider to use for altitude lookup.
-        google_api_key_path: Path to the Google API key file when using the
-            Google provider.
-        geotorget_creds_path: Path to the file containing Geotorget credentials.
-        local_elevation_path: Path to the local elevation archive file.
-        local_rinex_path: Path where RINEX navigation files are stored.
-        local_ionex_path: Path where IONEX files are stored.
+    :param lat: Latitude in decimal degrees.
+    :type lat: float
+    :param lon: Longitude in decimal degrees.
+    :type lon: float
+    :param desired_datetime: Date and time values in local time as a list of
+        [year, month, day, hour, minute, second].
+    :type desired_datetime: list[int]
+    :param desired_timezone: Time zone identifier for the requested local time (for example: Europe/Stockholm).
+    :type desired_timezone: str
+    :param constellation: GNSS constellation descriptor as [name, short_code,
+        filename_code].
+    :type constellation: list[str]
+    :param timestamp: Optional datetime to override the requested time.
+    :type timestamp: datetime
+    :param verbose: Whether to print intermediate information.
+    :type verbose: bool
+    :param visibility_threshold_deg: Minimum satellite elevation in degrees for
+        a satellite to be considered visible.
+    :type visibility_threshold_deg: float
+    :param elevation_api: Elevation provider to use for altitude lookup. Supported values are
+        "open" for open-elevation.com (only works up to a certain latitude), "google" for Google Elevation
+        (requires an API key), "geotorget" for Lantmäteriet/Geotorget
+        (Sweden only, requires credentials), or "local" for the local archive
+        file.
+    :type elevation_api: str
+    :param google_api_key_path: Optional path to the Google API key file when using the
+        Google provider.
+    :type google_api_key_path: str
+    :param geotorget_creds_path: Optional path to the file containing Geotorget
+        credentials.
+    :type geotorget_creds_path: str
+    :param local_elevation_path: Optional path to the local elevation archive file.
+    :type local_elevation_path: str
+    :param local_rinex_path: Optional path where RINEX navigation files are stored.
+    :type local_rinex_path: str
+    :param local_ionex_path: Optional path where IONEX files are stored.
+    :type local_ionex_path: str
+    :return: The estimated HDOP value.
+    :rtype: float
     """
+    desired_timezone = ZoneInfo(desired_timezone)
     navdata = get_cddis_data(
         constellation,
         "RINEX",
@@ -315,7 +340,7 @@ def get_iono_delay(
     lat,
     lon,
     desired_datetime,
-    desired_timezone,
+    desired_timezone="Europe/Stockholm",
     constellation=["GPS", "n", "GN"],
     timestamp=None,
     verbose=True,
@@ -326,20 +351,30 @@ def get_iono_delay(
     The calculation uses daily IONEX maps from CDDIS to evaluate the vertical
     total electron content (VTEC) at the requested coordinates and timestamp.
     The helper is intended for comparing ionospheric conditions across places
-    and times, with the IONEX download path configurable instead of hard-coded.
+    and times.
 
-    Args:
-        lat: Latitude in decimal degrees.
-        lon: Longitude in decimal degrees.
-        desired_datetime: Date and time values in local time as a list of
-            [year, month, day, hour, minute, second].
-        desired_timezone: Time zone for the requested local time.
-        constellation: GNSS constellation descriptor as [name, short_code,
-            filename_code].
-        timestamp: Optional datetime to override the requested time.
-        verbose: Whether to print intermediate information.
-        local_ionex_path: Path where IONEX files are stored.
+    :param lat: Latitude in decimal degrees.
+    :type lat: float
+    :param lon: Longitude in decimal degrees.
+    :type lon: float
+    :param desired_datetime: Date and time values in local time as a list of
+        [year, month, day, hour, minute, second].
+    :type desired_datetime: list[int]
+    :param desired_timezone: Time zone identifier for the requested local time (for example: Europe/Stockholm).
+    :type desired_timezone: str
+    :param constellation: GNSS constellation descriptor as [name, short_code,
+        filename_code].
+    :type constellation: list[str]
+    :param timestamp: Optional datetime to override the requested time.
+    :type timestamp: datetime
+    :param verbose: Whether to print intermediate information.
+    :type verbose: bool
+    :param local_ionex_path: Optional path where IONEX files are stored.
+    :type local_ionex_path: str
+    :return: The estimated VTEC value in TECU.
+    :rtype: float
     """
+    desired_timezone = ZoneInfo(desired_timezone)
     ionodata = get_cddis_data(
         constellation,
         "IONEX",
@@ -380,7 +415,7 @@ def main():
     #constellations = [["Beidou", "f", "CN"], ["GLONASS", "g", "RN"], ["Galileo", "l", "EN"], ["GPS", "n", "GN"]]
     constellations = [["GPS", "n", "GN"]]
     desired_datetime = [2024, 9, 13, 13, 0, 0] # Date and time to study in Sweden local time. Format: [year, month, day, hours, minutes, seconds]
-    desired_timezone = ZoneInfo("Europe/Stockholm") # Default: ZoneInfo("Europe/Stockholm")
+    desired_timezone = "Europe/Stockholm" # Default: "Europe/Stockholm"
     visibility_threshold_deg=12
     elevation_api="geotorget"
     for constellation in constellations:
