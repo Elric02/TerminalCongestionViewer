@@ -352,8 +352,6 @@ def get_iono_delay(
     :param constellation: GNSS constellation descriptor as [name, short_code,
         filename_code].
     :type constellation: list[str]
-    :param timestamp: Optional datetime to override the requested time.
-    :type timestamp: datetime
     :param verbose: Whether to print intermediate information.
     :type verbose: bool
     :param local_ionex_path: Optional path where IONEX files are stored.
@@ -396,8 +394,8 @@ def main():
             #get_iono_delay(navdata)
             #get_iono_delay2(navdata)
     '''
-    COORDINATES = [58.4170492, 15.6238495] # Coordinates for Linköping Resecentrum in EPSG:4326/WGS84 (lat, lon)
-    print("Getting HDOP and iono delay for coordinates:", COORDINATES)
+    coordinates = [58.4170492, 15.6238495] # Coordinates for Linköping Resecentrum in EPSG:4326/WGS84 (lat, lon)
+    print("Getting HDOP and iono delay for coordinates:", coordinates)
     #constellations = [["Beidou", "f", "CN"], ["GLONASS", "g", "RN"], ["Galileo", "l", "EN"], ["GPS", "n", "GN"]]
     constellations = [["GPS", "n", "GN"]]
     desired_datetime = [2024, 9, 13, 13, 0, 0] # Date and time to study in Sweden local time. Format: [year, month, day, hours, minutes, seconds]
@@ -406,8 +404,8 @@ def main():
     elevation_api="geotorget"
     for constellation in constellations:
         hdop = get_hdop(
-            COORDINATES[0],
-            COORDINATES[1],
+            coordinates[0],
+            coordinates[1],
             desired_datetime,
             desired_timezone,
             constellation,
@@ -416,8 +414,8 @@ def main():
             elevation_api=elevation_api
         )
         vtec = get_iono_delay(
-            COORDINATES[0],
-            COORDINATES[1],
+            coordinates[0],
+            coordinates[1],
             desired_datetime,
             desired_timezone,
             constellation,
