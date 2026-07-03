@@ -70,7 +70,6 @@ def get_factors(terminal_coordinates_df, terminal_name):
     for col in range(1,7):
         if filtered_terminal_coordinates_df.select(pl.col('lon'+str(col))).to_series().to_list()[0] is not None:
             coords.append((filtered_terminal_coordinates_df.select(pl.col('lon'+str(col))).to_series().to_list()[0], filtered_terminal_coordinates_df.select(pl.col('lat'+str(col))).to_series().to_list()[0]))
-    print(coords[0][0])
     # Rework locations, I want the terminal locations rather than the weather stations
     '''
     locations_csv_path="weather_stations.csv"
@@ -87,14 +86,14 @@ def get_factors(terminal_coordinates_df, terminal_name):
     print("Getting HDOP and iono delay for coordinates:", coords[0][0], coords[0][1])
     #constellations = [["Beidou", "f", "CN"], ["GLONASS", "g", "RN"], ["Galileo", "l", "EN"], ["GPS", "n", "GN"]]
     constellations = [["GPS", "n", "GN"]]
-    desired_datetime = [2024, 9, 13, 13, 0, 0]
+    desired_datetime = [int(date.split("-")[0]), int(date.split("-")[1]), int(date.split("-")[2]), time_ranges[0][0][0], time_ranges[0][0][1], time_ranges[0][0][2]]
     desired_timezone = "Europe/Stockholm"
     visibility_threshold_deg = 12
     elevation_api="geotorget"
     for constellation in constellations:
         hdop = otherfactors_data.get_hdop(
-            coords[0][0],
             coords[0][1],
+            coords[0][0],
             desired_datetime,
             desired_timezone,
             constellation,
@@ -103,8 +102,8 @@ def get_factors(terminal_coordinates_df, terminal_name):
             elevation_api=elevation_api
         )
         vtec = otherfactors_data.get_iono_delay(
-            coords[0][0],
             coords[0][1],
+            coords[0][0],
             desired_datetime,
             desired_timezone,
             constellation,

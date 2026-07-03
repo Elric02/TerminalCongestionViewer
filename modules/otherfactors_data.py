@@ -35,9 +35,9 @@ def get_alt(
     lon,
     verbose=True,
     elevation_api="geotorget",
-    google_api_key_path="../google_api_key.txt",
-    geotorget_creds_path="../geotorget_creds.txt",
-    local_elevation_path="../tempdata/elevation_data_archive.txt",
+    google_api_key_path="google_api_key.txt",
+    geotorget_creds_path="geotorget_creds.txt",
+    local_elevation_path="tempdata/elevation_data_archive.txt",
 ):
     """Return the elevation at the given WGS84 coordinates.
 
@@ -66,7 +66,7 @@ def get_alt(
     :rtype: float
     """
 
-    def call_elevation_api(url, params, auth=None, verbose=True):
+    def call_elevation_api(lat, lon, url, params, auth=None, verbose=True):
         if elevation_api == "geotorget":
             # WGS84 → SWEREF 99 TM (EPSG:3006), the only CRS the API accepts for simple GET queries
             _transformer = Transformer.from_crs("EPSG:4326", "EPSG:3006", always_xy=True)
@@ -112,19 +112,19 @@ def get_alt(
     if elevation_api == "open":
         url = "https://api.open-elevation.com/api/v1/lookup"
         params = {"locations": f"{lat},{lon}"}
-        elevation = call_elevation_api(url, params, verbose=verbose)
+        elevation = call_elevation_api(lat, lon, url, params, verbose=verbose)
     elif elevation_api == "google":
         url = "https://maps.googleapis.com/maps/api/elevation/json"
         with open(google_api_key_path, "r") as f:
             api_key = f.read().strip()
         params = {"locations": f"{lat},{lon}", "key": api_key}
-        elevation = call_elevation_api(url, params, verbose=verbose)
+        elevation = call_elevation_api(lat, lon, url, params, verbose=verbose)
     elif elevation_api == "geotorget":
         url = "https://api.lantmateriet.se/distribution/produkter/markhojd/v1/hojd"
         params = {"locations": f"{lat},{lon}"}
         with open(geotorget_creds_path, "r") as f:
             username, password = f.read().strip().splitlines()
-        elevation = call_elevation_api(url, params, (username, password), verbose=verbose)
+        elevation = call_elevation_api(lat, lon, url, params, (username, password), verbose=verbose)
     elif elevation_api == "local":
         if local_elevation_path == "": raise RuntimeError("No local_elevation_path provided")
         with open(local_elevation_path, 'r') as f:
@@ -140,8 +140,8 @@ def get_cddis_data(
     desired_datetime,
     desired_timezone,
     verbose=True,
-    local_rinex_path="../tempdata/rinex_nav",
-    local_ionex_path="../tempdata/ionex",
+    local_rinex_path="tempdata/rinex_nav",
+    local_ionex_path="tempdata/ionex",
 ):
     epoch = get_desired_datetime_utc(desired_datetime, desired_timezone)
 
@@ -211,11 +211,11 @@ def get_hdop(
     verbose=True,
     visibility_threshold_deg=12,
     elevation_api="geotorget",
-    google_api_key_path="../google_api_key.txt",
-    geotorget_creds_path="../geotorget_creds.txt",
-    local_elevation_path="../tempdata/elevation_data_archive.txt",
-    local_rinex_path="../tempdata/rinex_nav",
-    local_ionex_path="../tempdata/ionex",
+    google_api_key_path="google_api_key.txt",
+    geotorget_creds_path="geotorget_creds.txt",
+    local_elevation_path="tempdata/elevation_data_archive.txt",
+    local_rinex_path="tempdata/rinex_nav",
+    local_ionex_path="tempdata/ionex",
 ):
     """Estimate the horizontal dilution of precision for a location and time.
 
@@ -333,7 +333,7 @@ def get_iono_delay(
     desired_timezone="Europe/Stockholm",
     constellation=["GPS", "n", "GN"],
     verbose=True,
-    local_ionex_path="../tempdata/ionex",
+    local_ionex_path="tempdata/ionex",
 ):
     """Estimate the ionospheric delay for a location and time.
 
