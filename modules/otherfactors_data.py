@@ -214,7 +214,6 @@ def get_hdop(
     desired_datetime,
     desired_timezone="Europe/Stockholm",
     constellation=["GPS", "n", "GN"],
-    timestamp=None,
     verbose=True,
     visibility_threshold_deg=12,
     elevation_api="geotorget",
@@ -241,8 +240,6 @@ def get_hdop(
     :param constellation: GNSS constellation descriptor as [name, short_code,
         filename_code].
     :type constellation: list[str]
-    :param timestamp: Optional datetime to override the requested time.
-    :type timestamp: datetime
     :param verbose: Whether to print intermediate information.
     :type verbose: bool
     :param visibility_threshold_deg: Minimum satellite elevation in degrees for
@@ -280,9 +277,8 @@ def get_hdop(
         local_ionex_path=local_ionex_path,
     )
 
-    if timestamp is None:
-        timestamp = get_desired_datetime_utc(desired_datetime, desired_timezone)
-    elif isinstance(timestamp, datetime):
+    timestamp = get_desired_datetime_utc(desired_datetime, desired_timezone)
+    if isinstance(timestamp, datetime):
         if timestamp.tzinfo is None:
             timestamp = timestamp.replace(tzinfo=desired_timezone)
         timestamp = timestamp.astimezone(timezone.utc)
@@ -342,16 +338,13 @@ def get_iono_delay(
     desired_datetime,
     desired_timezone="Europe/Stockholm",
     constellation=["GPS", "n", "GN"],
-    timestamp=None,
     verbose=True,
     local_ionex_path="../tempdata/ionex",
 ):
     """Estimate the ionospheric delay for a location and time.
 
     The calculation uses daily IONEX maps from CDDIS to evaluate the vertical
-    total electron content (VTEC) at the requested coordinates and timestamp.
-    The helper is intended for comparing ionospheric conditions across places
-    and times.
+    total electron content (VTEC) at the requested coordinates and datetime.
 
     :param lat: Latitude in decimal degrees.
     :type lat: float
@@ -384,9 +377,8 @@ def get_iono_delay(
         local_ionex_path=local_ionex_path,
     )
 
-    if timestamp is None:
-        timestamp = get_desired_datetime_local(desired_datetime, desired_timezone)
-    elif isinstance(timestamp, datetime):
+    timestamp = get_desired_datetime_local(desired_datetime, desired_timezone)
+    if isinstance(timestamp, datetime):
         if timestamp.tzinfo is None:
             timestamp = timestamp.replace(tzinfo=desired_timezone)
     orig_timestamp = timestamp
