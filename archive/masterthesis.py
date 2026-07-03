@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import read_protobuf
-import modules.libs.gtfs_realtime_pb2 as gtfs_realtime_pb2
+import libs.gtfs_realtime_pb2 as gtfs_realtime_pb2
 import math
 from pyproj import Geod
 from datetime import datetime
