@@ -30,29 +30,41 @@ from pyproj import Transformer
 # Possibility of using other constellations (Currently we only use GPS data, the other constellations create an error on gnss-lib / georinex trying to load the data)
 
 
-VIS_THRESH_DEG = 12 # Below satellite visibility threshold (in degrees), default is 12
-DESIRED_DATETIME = [2024, 9, 13, 7, 0, 0] # Date and time to study in Sweden local time. Format: [year, month, day, hours, minutes, seconds]
-DESIRED_TIMEZONE = ZoneInfo("Europe/Stockholm") # Default: ZoneInfo("Europe/Stockholm")
-
-ELEVATION_API = "geotorget" # "open" if you want to use open-elevation.com (limited to below 60deg latitude), "google" for Google Elevation (requires API key), "geotorget" for Lantmäteriet/Geotorget (Sweden only, requires account credentials), "local" for the local file
-GOOGLE_API_KEY_PATH = "google_api_key.txt" # Path to the key for the Google API usage. Can be ignored if Google is unused
-GEOTORGET_CREDS_PATH = "geotorget_creds.txt" # Path to the file containing the Geotorget credentials (username and password). Format: username in the first line, password in the second line.
-LOCAL_ELEVATION_PATH = "tempdata/elevation_data_archive.txt" # Path to the local elevation data archive file (txt). Leave blank if you don't want one
-LOCAL_RINEX_PATH = "tempdata/rinex_nav" # Path which the RINEX files will be saved in
-LOCAL_IONEX_PATH = "tempdata/ionex" # Path which the IONEX files will be saved in
-
-LOCATIONS_CSV_PATH = "weather_stations.csv" # Path to the CSV containing the list of locations to study, with their coordinates
-
-
-def get_desired_datetime_local():
-    return datetime(*DESIRED_DATETIME, tzinfo=DESIRED_TIMEZONE)
-def get_desired_datetime_utc():
-    return get_desired_datetime_local().astimezone(timezone.utc)
+def get_desired_datetime_local(desired_datetime, desired_timezone):
+    return datetime(*desired_datetime, tzinfo=desired_timezone)
+def get_desired_datetime_utc(desired_datetime, desired_timezone):
+    return get_desired_datetime_local(desired_datetime, desired_timezone).astimezone(timezone.utc)
 
 # Return altitude based on provided coordinates
-def get_alt(lat, lon, verbose=True):
+def get_alt(
+    lat,
+    lon,
+    verbose=True,
+    elevation_api="geotorget",
+    google_api_key_path="../google_api_key.txt",
+    geotorget_creds_path="../geotorget_creds.txt",
+    local_elevation_path="../tempdata/elevation_data_archive.txt",
+):
+    """Return the elevation at the given WGS84 coordinates.
+
+    Args:
+        lat: Latitude in decimal degrees.
+        lon: Longitude in decimal degrees.
+        verbose: Whether to print status information.
+        elevation_api: Elevation provider to use. Supported values are "open"
+            for open-elevation.com, "google" for Google Elevation (requires an
+            API key), "geotorget" for Lantmäteriet/Geotorget (Sweden only,
+            requires credentials), or "local" for the local archive file.
+        google_api_key_path: Path to the Google API key file when using the
+            Google provider.
+        geotorget_creds_path: Path to the file containing Geotorget credentials
+            (username and password).
+        local_elevation_path: Path to the local elevation archive file. Leave
+            blank to disable local caching.
+    """
+
     def call_elevation_api(url, params, auth=None, verbose=True):
-        if ELEVATION_API == "geotorget":
+        if elevation_api == "geotorget":
             # WGS84 → SWEREF 99 TM (EPSG:3006), the only CRS the API accepts for simple GET queries
             _transformer = Transformer.from_crs("EPSG:4326", "EPSG:3006", always_xy=True)
             easting, northing = _transformer.transform(lon, lat)
@@ -77,13 +89,13 @@ def get_alt(lat, lon, verbose=True):
         if verbose:
             print(f"Returned altitude: {elevation}m")
         # Local file creation/update, skip if we don't want a local file
-        if LOCAL_ELEVATION_PATH != "":
+        if local_elevation_path != "":
             # Make sure file exists (create if it doesn't)
-            with open(LOCAL_ELEVATION_PATH, 'a+') as f:
+            with open(local_elevation_path, 'a+') as f:
                 # Add elevation to corresponding latitude and longitude (dict_key)
                 dict_key = f"{lat}/{lon}"
                 # Check if file is empty
-                if os.stat(LOCAL_ELEVATION_PATH).st_size == 0:
+                if os.stat(local_elevation_path).st_size == 0:
                     elevation_dict = {}
                 else:
                     f.seek(0)
@@ -94,31 +106,41 @@ def get_alt(lat, lon, verbose=True):
                 f.write(json.dumps(elevation_dict))
         return elevation
     
-    if ELEVATION_API == "open":
+    if elevation_api == "open":
         url = "https://api.open-elevation.com/api/v1/lookup"
         params = {"locations": f"{lat},{lon}"}
         elevation = call_elevation_api(url, params, verbose=verbose)
-    elif ELEVATION_API == "google":
+    elif elevation_api == "google":
         url = "https://maps.googleapis.com/maps/api/elevation/json"
-        params = {"locations": f"{lat},{lon}", "key": open(GOOGLE_API_KEY_PATH, "r").read()}
+        with open(google_api_key_path, "r") as f:
+            api_key = f.read().strip()
+        params = {"locations": f"{lat},{lon}", "key": api_key}
         elevation = call_elevation_api(url, params, verbose=verbose)
-    elif ELEVATION_API == "geotorget":
+    elif elevation_api == "geotorget":
         url = "https://api.lantmateriet.se/distribution/produkter/markhojd/v1/hojd"
         params = {"locations": f"{lat},{lon}"}
-        with open(GEOTORGET_CREDS_PATH, "r") as f:
+        with open(geotorget_creds_path, "r") as f:
             username, password = f.read().strip().splitlines()
         elevation = call_elevation_api(url, params, (username, password), verbose=verbose)
-    elif ELEVATION_API == "local":
-        if LOCAL_ELEVATION_PATH == "": raise RuntimeError("No LOCAL_ELEVATION_PATH provided")
-        with open(LOCAL_ELEVATION_PATH, 'r') as f:
+    elif elevation_api == "local":
+        if local_elevation_path == "": raise RuntimeError("No local_elevation_path provided")
+        with open(local_elevation_path, 'r') as f:
             elevation_dict = json.load(f)
             if elevation_dict[f"{lat}/{lon}"] == "": raise RuntimeError("No elevation value in local file for provided coordinates")
             elevation = elevation_dict[f"{lat}/{lon}"]
     return elevation
 
 
-def get_cddis_data(constellation, type, verbose=True):
-    epoch = get_desired_datetime_utc()
+def get_cddis_data(
+    constellation,
+    type,
+    desired_datetime,
+    desired_timezone,
+    verbose=True,
+    local_rinex_path="../tempdata/rinex_nav",
+    local_ionex_path="../tempdata/ionex",
+):
+    epoch = get_desired_datetime_utc(desired_datetime, desired_timezone)
 
     # Build CDDIS URL and paths
     year = epoch.year
@@ -127,7 +149,7 @@ def get_cddis_data(constellation, type, verbose=True):
     day_str = f"{epoch.timetuple().tm_yday:03d}"
 
     if type == "RINEX":
-        download_dir = LOCAL_RINEX_PATH
+        download_dir = local_rinex_path
         os.makedirs(download_dir, exist_ok=True)
         # Daily broadcast navigation file
         filename = f"ONS100SWE_R_{year}{day_str}0000_01D_{constellation[2]}.rnx.gz"
@@ -136,7 +158,7 @@ def get_cddis_data(constellation, type, verbose=True):
             f"{year}/{day_str}/{yy}{constellation[1]}/{filename}"
         )
     elif type == "IONEX":
-        download_dir = LOCAL_IONEX_PATH
+        download_dir = local_ionex_path
         os.makedirs(download_dir, exist_ok=True)
         # Daily TEC map file from ESA
         filename = f"ESA0OPSRAP_{year}{day_str}0000_01D_01H_GIM.INX.gz"
@@ -177,15 +199,78 @@ def get_cddis_data(constellation, type, verbose=True):
             return ionodata
 
 
-def get_hdop(lat, lon, navdata, constellation=["GPS", "n", "GN"], timestamp=None, alt=None, verbose=True):
+def get_hdop(
+    lat,
+    lon,
+    desired_datetime,
+    desired_timezone,
+    constellation=["GPS", "n", "GN"],
+    timestamp=None,
+    alt=None,
+    verbose=True,
+    visibility_threshold_deg=12,
+    elevation_api="geotorget",
+    google_api_key_path="../google_api_key.txt",
+    geotorget_creds_path="../geotorget_creds.txt",
+    local_elevation_path="../tempdata/elevation_data_archive.txt",
+    local_rinex_path="../tempdata/rinex_nav",
+    local_ionex_path="../tempdata/ionex",
+):
+    """Estimate the horizontal dilution of precision for a location and time.
+
+    The calculation uses broadcast navigation data from CDDIS and a simplified
+    satellite visibility check. Satellites below the configured elevation
+    threshold are ignored, which makes the result suitable for comparing GNSS
+    conditions across locations and times.
+
+    Args:
+        lat: Latitude in decimal degrees.
+        lon: Longitude in decimal degrees.
+        desired_datetime: Date and time values in local time as a list of
+            [year, month, day, hour, minute, second].
+        desired_timezone: Time zone for the requested local time.
+        constellation: GNSS constellation descriptor as [name, short_code,
+            filename_code].
+        timestamp: Optional datetime to override the requested time.
+        alt: Optional altitude override; otherwise it is fetched from the
+            configured elevation provider.
+        verbose: Whether to print intermediate information.
+        visibility_threshold_deg: Minimum satellite elevation in degrees for a
+            satellite to be considered visible.
+        elevation_api: Elevation provider to use for altitude lookup.
+        google_api_key_path: Path to the Google API key file when using the
+            Google provider.
+        geotorget_creds_path: Path to the file containing Geotorget credentials.
+        local_elevation_path: Path to the local elevation archive file.
+        local_rinex_path: Path where RINEX navigation files are stored.
+        local_ionex_path: Path where IONEX files are stored.
+    """
+    navdata = get_cddis_data(
+        constellation,
+        "RINEX",
+        desired_datetime,
+        desired_timezone,
+        verbose=verbose,
+        local_rinex_path=local_rinex_path,
+        local_ionex_path=local_ionex_path,
+    )
+
     if timestamp is None:
-        timestamp = get_desired_datetime_utc()
+        timestamp = get_desired_datetime_utc(desired_datetime, desired_timezone)
     elif isinstance(timestamp, datetime):
         if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=DESIRED_TIMEZONE)
+            timestamp = timestamp.replace(tzinfo=desired_timezone)
         timestamp = timestamp.astimezone(timezone.utc)
     timestamp = timestamp.timestamp()
-    alt = get_alt(lat, lon)
+    alt = get_alt(
+        lat,
+        lon,
+        verbose=verbose,
+        elevation_api=elevation_api,
+        google_api_key_path=google_api_key_path,
+        geotorget_creds_path=geotorget_creds_path,
+        local_elevation_path=local_elevation_path,
+    )
 
     # Compute satellite positions
     sat_states = glp.utils.sv_models.find_sv_states(timestamp, navdata)
@@ -196,7 +281,7 @@ def get_hdop(lat, lon, navdata, constellation=["GPS", "n", "GN"], timestamp=None
     el_az = glp.utils.coordinates.ecef_to_el_az(rx_ecef, sat_states[["x_sv_m", "y_sv_m", "z_sv_m"]])
     elev = el_az[0] # Elevation in radians
     # This array contains Boolean values indicating for each sat if they are visible or not
-    visible = elev > np.deg2rad(VIS_THRESH_DEG)
+    visible = elev > np.deg2rad(visibility_threshold_deg)
     # Only keep visible satellites
     sat_states = pl.DataFrame(sat_states.pandas_df()[visible])
     # For satellites present twice, only keep the first one
@@ -226,23 +311,61 @@ def get_hdop(lat, lon, navdata, constellation=["GPS", "n", "GN"], timestamp=None
     return hdop
 
 
-def get_iono_delay(ionodata, lat, lon, timestamp=None):
+def get_iono_delay(
+    lat,
+    lon,
+    desired_datetime,
+    desired_timezone,
+    constellation=["GPS", "n", "GN"],
+    timestamp=None,
+    verbose=True,
+    local_ionex_path="../tempdata/ionex",
+):
+    """Estimate the ionospheric delay for a location and time.
+
+    The calculation uses daily IONEX maps from CDDIS to evaluate the vertical
+    total electron content (VTEC) at the requested coordinates and timestamp.
+    The helper is intended for comparing ionospheric conditions across places
+    and times, with the IONEX download path configurable instead of hard-coded.
+
+    Args:
+        lat: Latitude in decimal degrees.
+        lon: Longitude in decimal degrees.
+        desired_datetime: Date and time values in local time as a list of
+            [year, month, day, hour, minute, second].
+        desired_timezone: Time zone for the requested local time.
+        constellation: GNSS constellation descriptor as [name, short_code,
+            filename_code].
+        timestamp: Optional datetime to override the requested time.
+        verbose: Whether to print intermediate information.
+        local_ionex_path: Path where IONEX files are stored.
+    """
+    ionodata = get_cddis_data(
+        constellation,
+        "IONEX",
+        desired_datetime,
+        desired_timezone,
+        verbose=verbose,
+        local_ionex_path=local_ionex_path,
+    )
+
     if timestamp is None:
-        timestamp = get_desired_datetime_local()
+        timestamp = get_desired_datetime_local(desired_datetime, desired_timezone)
     elif isinstance(timestamp, datetime):
         if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=DESIRED_TIMEZONE)
+            timestamp = timestamp.replace(tzinfo=desired_timezone)
     orig_timestamp = timestamp
     timestamp = timestamp.astimezone(timezone.utc)
     vtec_value = ionex.get_vtec_value(ionodata, lat, lon, timestamp, variable='tec')
-    print(f"{datetime.now().strftime("%H:%M:%S")} VTEC at ({lat}, {lon}) / {orig_timestamp.isoformat()} local time, {timestamp.isoformat()} UTC / {vtec_value} TECU")
+    print(f"{datetime.now().strftime('%H:%M:%S')} VTEC at ({lat}, {lon}) / {orig_timestamp.isoformat()} local time, {timestamp.isoformat()} UTC / {vtec_value} TECU")
     return vtec_value
 
 
 def main():
     # Rework locations, I want the terminal locations rather than the weather stations
     '''
-    locations_df = pl.read_csv(LOCATIONS_CSV_PATH)
+    locations_csv_path="weather_stations.csv"
+    locations_df = pl.read_csv(locations_csv_path)
     for location in locations_df.iter_rows(named=True):
         print("LOCATION:", location["Name"])
         constellations = [["GPS", "n", "GN"]]
@@ -256,11 +379,29 @@ def main():
     print("Getting HDOP and iono delay for coordinates:", COORDINATES)
     #constellations = [["Beidou", "f", "CN"], ["GLONASS", "g", "RN"], ["Galileo", "l", "EN"], ["GPS", "n", "GN"]]
     constellations = [["GPS", "n", "GN"]]
+    desired_datetime = [2024, 9, 13, 13, 0, 0] # Date and time to study in Sweden local time. Format: [year, month, day, hours, minutes, seconds]
+    desired_timezone = ZoneInfo("Europe/Stockholm") # Default: ZoneInfo("Europe/Stockholm")
+    visibility_threshold_deg=12
+    elevation_api="geotorget"
     for constellation in constellations:
-        navdata = get_cddis_data(constellation, "RINEX", verbose=True)
-        ionodata = get_cddis_data(constellation, "IONEX", verbose=True)
-        hdop = get_hdop(COORDINATES[0], COORDINATES[1], navdata, constellation, verbose=True)
-        vtec = get_iono_delay(ionodata, COORDINATES[0], COORDINATES[1], get_desired_datetime_local())
+        hdop = get_hdop(
+            COORDINATES[0],
+            COORDINATES[1],
+            desired_datetime,
+            desired_timezone,
+            constellation,
+            verbose=True,
+            visibility_threshold_deg=visibility_threshold_deg,
+            elevation_api=elevation_api
+        )
+        vtec = get_iono_delay(
+            COORDINATES[0],
+            COORDINATES[1],
+            desired_datetime,
+            desired_timezone,
+            constellation,
+            verbose=True
+        )
 
 if __name__ == "__main__":
     main()

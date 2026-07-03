@@ -2,7 +2,7 @@ import glob
 import os
 import pandas as pd
 import read_protobuf
-import libs.gtfs_realtime_pb2 as gtfs_realtime_pb2
+import modules.libs.gtfs_realtime_pb2 as gtfs_realtime_pb2
 import time
 from datetime import datetime, timezone
 import requests
