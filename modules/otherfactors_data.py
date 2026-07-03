@@ -14,14 +14,8 @@ import pandas as pd
 from pyproj import Transformer
 
 
-#NOTES
-# Times in the TLE data use UTC
-# All TLE measurements from the same sat return the same position because it is the position extrapolated for that satellite at the requested time (20250515-16:00), not the position of the satellite at the time of TLE measurement (so it's all good)
-# For now the TLE data includes all Galileo satellites, in the future need to see what constellations the bus pos systems use
-# Also worth mentioning: we use a simplified method and only estimate the visible satellite, not 100% reliable. But probably OK for comparing from one place/date/time to another
-
-
 # IMPORTANT NOTE: for now, login is done according to this page: https://nsidc.org/data/user-resources/help-center/creating-netrc-file-earthdata-login
+# Also worth mentioning: we use a simplified method and only estimate the visible satellite, not 100% reliable. But probably OK for comparing from one place/date/time to another
 
 #TODO
 # Coordinates as a parameter
