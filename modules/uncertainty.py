@@ -303,7 +303,7 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
     if export_final_to_csv:
         directory = "output/uncertainty"
         os.makedirs(directory, exist_ok=True)
-        results_df.write_csv(os.path.join(directory, f'uncertainty_comparison_{terminal}_{date}.csv'))
+        results_df.write_csv(os.path.join(directory, f'uncertainty_comparison_{terminal}_{date}_{time_range[0][0]+1}.csv'))
 
     # Get pooled mean and pooled standard deviation across rows
     sspd_results_df = results_df.filter(pl.col("measure") == "sspd")

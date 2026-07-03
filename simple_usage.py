@@ -12,23 +12,19 @@ import modules.weather_data as weather_data
 # PARAMETERS
 #provider = "otraf"
 #terminal_coordinates = [(15.621, 58.416), (15.626, 58.416), (15.621, 58.419), (15.626, 58.419)]
-date = "2024-08-06"
-time_ranges = [
-    [[6, 0, 0], [7, 59, 59]]
-]
 # Note: if a terminal has several operators, add 1 line in the CSV per operator, with the same terminal name (only the coordinates for the first row will be used)
 terminals_csv = "terminal_coords.csv"
 import_method = "online" # "online" for download from KoDa or "local" if files are already in the tempdata folder
 delete_tempdata = True # Whether to delete all GTFS data from the tempdata folder after the operation is completed.
 # Enable/disable the different modules here
-mod_koda_import = False
-mod_uncertainty = False
-mod_externalfactors = True
+mod_koda_import = True
+mod_uncertainty = True
+mod_externalfactors = False
 
 
 # FUNCTIONS
 
-def export_results(results):
+def export_results(results, date, time_ranges):
     """Export a dictionary to a text file, creating the file and output directory if needed."""
 
     file_path = f"output/results/results_{date}_{"-".join(str(item) for sublist in time_ranges for subsublist in sublist for item in subsublist)}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt"
@@ -38,7 +34,7 @@ def export_results(results):
         json.dump(results, out_file, indent=2, ensure_ascii=False)
 
 
-def process_terminal(terminal_coordinates_df, terminal_name):
+def process_terminal(terminal_coordinates_df, terminal_name, date, time_ranges):
     filtered_terminal_coordinates_df = terminal_coordinates_df.filter(pl.col('terminal') == terminal_name)
     print("Now starting", terminal_name)
     # Get a list of all the (unique) operators for that terminal
@@ -50,9 +46,9 @@ def process_terminal(terminal_coordinates_df, terminal_name):
             if filtered_terminal_coordinates_df.select(pl.col('lon'+str(col))).to_series().to_list()[0] is not None:
                 coords.append((filtered_terminal_coordinates_df.select(pl.col('lon'+str(col))).to_series().to_list()[0], filtered_terminal_coordinates_df.select(pl.col('lat'+str(col))).to_series().to_list()[0]))
         print("Coordinates of the terminal:", coords)
-        # Build the name of the CSV file
-        export_name = "vehiclepositions_terminal_"+terminal_name+"_"+("_".join(providers))+"_"+date+".csv"
-        export_path = "output/"+export_name
+        # Build the name of the CSV file here instead of in the gtfs_import module
+        export_name = "vehiclepositions_terminal_"+terminal_name+"_"+("_".join(providers))+"_"+date+"_"+"-".join(str(item) for sublist in time_ranges for subsublist in sublist for item in subsublist)+".csv"
+        export_path = "output/vehiclepositions/"+export_name
         total_df_list = []
         # Append to total_df_list the data for each operator
         for provider in providers:
@@ -60,11 +56,11 @@ def process_terminal(terminal_coordinates_df, terminal_name):
         total_df = pl.concat(total_df_list, how="diagonal_relaxed")
         total_df.write_csv(export_path)
     if mod_uncertainty:
-        imprecision_pooled_mean, imprecision_pooled_std, imprecision_trajs = uncertainty.get_imprecision(terminal_name, date, providers, time_range=[time_ranges[0][0][0], time_ranges[-1][1][0]+1], paths_gpkg=False, dbscan_global_min_samples=3, dbscan_global_eps_percentile=20)
+        imprecision_pooled_mean, imprecision_pooled_std, imprecision_trajs = uncertainty.get_imprecision(terminal_name, date, providers, time_range=[time_ranges[0][0][0], time_ranges[-1][1][0]+1], paths_gpkg=False, verbose=False, dbscan_global_min_samples=3, dbscan_global_eps_percentile=20)
         test_results = {"imprecision": {"imprecision_val": imprecision_pooled_mean, "imprecision_std": imprecision_pooled_std, "imprecision_trajs": imprecision_trajs}}
-        export_results(test_results)
+        export_results(test_results, date, time_ranges)
 
-def get_factors(terminal_coordinates_df, terminal_name):
+def get_factors(terminal_coordinates_df, terminal_name, date, time_ranges):
     filtered_terminal_coordinates_df = terminal_coordinates_df.filter(pl.col('terminal') == terminal_name)
     coords = []
     for col in range(1,7):
@@ -86,7 +82,8 @@ def get_factors(terminal_coordinates_df, terminal_name):
     print("Getting HDOP and iono delay for coordinates:", coords[0][0], coords[0][1])
     #constellations = [["Beidou", "f", "CN"], ["GLONASS", "g", "RN"], ["Galileo", "l", "EN"], ["GPS", "n", "GN"]]
     constellations = [["GPS", "n", "GN"]]
-    desired_datetime = [int(date.split("-")[0]), int(date.split("-")[1]), int(date.split("-")[2]), time_ranges[0][0][0], time_ranges[0][0][1], time_ranges[0][0][2]]
+    # Set desired time as 1h later than the beginning of the time range (so that it is in the middle when the time range is of 2h)
+    desired_datetime = [int(date.split("-")[0]), int(date.split("-")[1]), int(date.split("-")[2]), time_ranges[0][0][0] + 1, time_ranges[0][0][1], time_ranges[0][0][2]]
     desired_timezone = "Europe/Stockholm"
     visibility_threshold_deg = 12
     elevation_api="geotorget"
@@ -113,11 +110,30 @@ def get_factors(terminal_coordinates_df, terminal_name):
 
 
 # MAIN
+months = ["01", "03", "05", "07", "09", "11"]
+days = ["01", "06", "11", "16", "21", "26"]
+hours = [7, 12, 16, 21]
 terminal_coordinates_df = pl.read_csv(terminals_csv)
 # Get a list of all the (unique) names of the terminals to process
 terminal_names = terminal_coordinates_df.select(pl.col('terminal')).unique().to_series().to_list()
 print("Terminals to process:", terminal_names)
-for terminal_name in terminal_names:
-    process_terminal(terminal_coordinates_df, terminal_name)
-    if mod_externalfactors:
-        get_factors(terminal_coordinates_df, terminal_name)
+for month in months:
+    for day in days:
+        date = f"2024-{month}-{day}"
+        for hour in hours:
+            time_ranges = [
+                [[hour-1, 0, 0], [hour, 59, 59]]
+            ]
+            print("****************************************")
+            print("****************************************")
+            print("****************************************")
+            print("****************************************")
+            print("NOW STARTING PROCESSING FOR DATE:", date, "TIME RANGE:", time_ranges)
+            print("****************************************")
+            print("****************************************")
+            print("****************************************")
+            print("****************************************")
+            for terminal_name in terminal_names:
+                process_terminal(terminal_coordinates_df, terminal_name, date, time_ranges)
+                if mod_externalfactors:
+                    get_factors(terminal_coordinates_df, terminal_name, date, time_ranges)
