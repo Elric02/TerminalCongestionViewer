@@ -9,8 +9,10 @@ import pandas as pd
 import os
 
 
-def get_data(terminal, providers, date):
-    df = pl.read_csv(f"output/vehiclepositions/vehiclepositions_terminal_{terminal}_{("_".join(providers))}_{date}.csv", schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8})
+def get_data(terminal, providers, date, vehiclepositions_path=None):
+    if vehiclepositions_path is None:
+        vehiclepositions_path = f"output/vehiclepositions/vehiclepositions_terminal_{terminal}_{("_".join(providers))}_{date}.csv"
+    df = pl.read_csv(vehiclepositions_path, schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8})
     return df
 
 def format_data(df, min_points_in_traj, verbose):
@@ -260,7 +262,7 @@ def comparison(df, comparison_type, terminal, date, time_range, min_points_in_tr
     return results_df, routedirs_count
 
 
-def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in_traj=10, min_trips_for_clustering=5,
+def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in_traj=10, min_trips_for_clustering=5, vehiclepositions_path=None,
                     discard_if_several_clusters=False, export_intermediate_to_csv=False, export_final_to_csv=True, verbose=False,
                     dbscan_global_eps_percentile=12, dbscan_global_min_samples=3, paths_gpkg=True):
     """Get the imprecision value(s) for the desired location and timeframe
@@ -272,12 +274,14 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
     :param providers: The list of desired provider codes (e.g. ["otraf", "sl"]). Attention: if there are several operators, they must be in the same order than in the filename! All codes here:
         https://www.trafiklab.se/api/gtfs-datasets/gtfs-regional#operators-covered-by-this-dataset
     :type providers: list[str]
-    :param time_range: 2-element-list: (Only used in time comparison) start and beginning of desired time frame (e.g. `[5, 24]` -> only 1 timeframe, from 05:00:00 to 23:59:59 both included)
+    :param time_range: 2-element-list: Start and beginning of desired time frame (e.g. `[5, 24]` -> only 1 timeframe, from 05:00:00 to 23:59:59 both included). Used in time-comparison and results export naming
     :type time_range: list[int]
     :param min_points_in_traj: Minimum number of points in a trajectory for it to be considered in the calculations
     :type min_points_in_traj: int
     :param min_trips_for_clustering: Minimum number of trips/trajectories in the route+dir set for the clustering and analysis to happen
     :type min_trips_for_clustering: int
+    :param vehiclepositions_path: Path to the CSV file containing the VehiclePositions data for the desired terminal, date and providers. If None, it will be generated automatically
+    :type vehiclepositions_path: str or None
     :param discard_if_several_clusters: Whether the program should discard the route+dirs for which clustering has yield to more than 1 cluster (not counting outliers)
     :type discard_if_several_clusters: Boolean
     :param export_intermediate_to_csv: Whether to export the intermediate files (such as cluster_assignments and joined) to CSVs
@@ -294,7 +298,7 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
     :type paths_gpkg: Boolean
     :return: Dict containing the imprecision results
     """
-    data = get_data(terminal, providers, date)
+    data = get_data(terminal, providers, date, vehiclepositions_path=vehiclepositions_path)
     # comparison_type is "hours", "routes" or "clustered"
     results_df, routedirs_count = comparison(data, comparison_type="routes", terminal=terminal, date=date, time_range=time_range, min_points_in_traj=min_points_in_traj,
                             min_trips_for_clustering=min_trips_for_clustering, discard_if_several_clusters=discard_if_several_clusters,
@@ -303,7 +307,7 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
     if export_final_to_csv:
         directory = "output/uncertainty"
         os.makedirs(directory, exist_ok=True)
-        results_df.write_csv(os.path.join(directory, f'uncertainty_comparison_{terminal}_{date}_{time_range[0][0]+1}.csv'))
+        results_df.write_csv(os.path.join(directory, f'uncertainty_comparison_{terminal}_{date}_{time_range[0]+1}.csv'))
 
     # Get pooled mean and pooled standard deviation across rows
     sspd_results_df = results_df.filter(pl.col("measure") == "sspd")

@@ -56,7 +56,7 @@ def process_terminal(terminal_coordinates_df, terminal_name, date, time_ranges):
         total_df = pl.concat(total_df_list, how="diagonal_relaxed")
         total_df.write_csv(export_path)
     if mod_uncertainty:
-        imprecision_pooled_mean, imprecision_pooled_std, imprecision_trajs = uncertainty.get_imprecision(terminal_name, date, providers, time_range=[time_ranges[0][0][0], time_ranges[-1][1][0]+1], paths_gpkg=False, verbose=False, dbscan_global_min_samples=3, dbscan_global_eps_percentile=20)
+        imprecision_pooled_mean, imprecision_pooled_std, imprecision_trajs = uncertainty.get_imprecision(terminal_name, date, providers, time_range=[time_ranges[0][0][0], time_ranges[-1][1][0]+1], vehiclepositions_path=export_path, paths_gpkg=False, verbose=False, dbscan_global_min_samples=3, dbscan_global_eps_percentile=20)
         test_results = {"imprecision": {"imprecision_val": imprecision_pooled_mean, "imprecision_std": imprecision_pooled_std, "imprecision_trajs": imprecision_trajs}}
         export_results(test_results, date, time_ranges)
 
@@ -110,8 +110,8 @@ def get_factors(terminal_coordinates_df, terminal_name, date, time_ranges):
 
 
 # MAIN
-months = ["01", "03", "05", "07", "09", "11"]
-days = ["01", "06", "11", "16", "21", "26"]
+months = ["09"]
+days = ["06", "11", "16", "21", "26"]
 hours = [7, 12, 16, 21]
 terminal_coordinates_df = pl.read_csv(terminals_csv)
 # Get a list of all the (unique) names of the terminals to process
