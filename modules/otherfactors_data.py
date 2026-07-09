@@ -17,17 +17,36 @@ from pyproj import Transformer
 # IMPORTANT NOTE: for now, login is done according to this page: https://nsidc.org/data/user-resources/help-center/creating-netrc-file-earthdata-login
 # Also worth mentioning: we use a simplified method and only estimate the visible satellite, not 100% reliable. But probably OK for comparing from one place/date/time to another
 
-#TODO
-# Coordinates as a parameter
-# Better output and CSV output
-# Take the closest IGS station (https://network.igs.org/) (see commented code and COORDINATES variable in main())
-# Possibility of using other constellations (Currently we only use GPS data, the other constellations create an error on gnss-lib / georinex trying to load the data)
 
 
 def get_desired_datetime_local(desired_datetime, desired_timezone):
     return datetime(*desired_datetime, tzinfo=desired_timezone)
 def get_desired_datetime_utc(desired_datetime, desired_timezone):
     return get_desired_datetime_local(desired_datetime, desired_timezone).astimezone(timezone.utc)
+
+def get_closest_igs_station(lat, lon, year, day_str):
+    """Get the closest IGS station to the given coordinates, that has RINEX data available."""
+
+    igs_stations_df = pl.read_csv("igs_stations.csv")
+    igs_stations_df = igs_stations_df.filter(pl.col("Calibration").is_not_null())
+    igs_stations_df = igs_stations_df.with_columns(
+        (((pl.col("Latitude") - lat) ** 2 + (pl.col("Longitude") - lon) ** 2) ** 0.5)
+        .alias("distance")
+    )
+    igs_stations_df = igs_stations_df.sort("distance")
+
+    base_url = f"https://cddis.nasa.gov/archive/gnss/data/daily/{year}/{day_str}/{str(year)[-2:]}n"
+    for site_name in igs_stations_df["Site Name"].to_list():
+        filename = f"{site_name}_R_{year}{day_str}0000_01D_GN.rnx.gz"
+        url = f"{base_url}/{filename}"
+        try:
+            response = requests.head(url)
+            if response.status_code == 200:
+                print(f"Closest IGS station found: {site_name}")
+                return site_name
+        except requests.RequestException:
+            continue
+    raise RuntimeError("No available RINEX station found for nearby IGS stations")
 
 # Return altitude based on provided coordinates
 def get_alt(
@@ -139,6 +158,8 @@ def get_cddis_data(
     type,
     desired_datetime,
     desired_timezone,
+    lat,
+    lon,
     verbose=True,
     local_rinex_path="tempdata/rinex_nav",
     local_ionex_path="tempdata/ionex",
@@ -150,12 +171,13 @@ def get_cddis_data(
     yy = str(year)[-2:]
     # Day in format 000-356 as a string
     day_str = f"{epoch.timetuple().tm_yday:03d}"
+    igs_station = get_closest_igs_station(lat, lon, year, day_str)
 
     if type == "RINEX":
         download_dir = local_rinex_path
         os.makedirs(download_dir, exist_ok=True)
         # Daily broadcast navigation file
-        filename = f"ONS100SWE_R_{year}{day_str}0000_01D_{constellation[2]}.rnx.gz"
+        filename = f"{igs_station}_R_{year}{day_str}0000_01D_{constellation[2]}.rnx.gz"
         url = (
             f"https://cddis.nasa.gov/archive/gnss/data/daily/"
             f"{year}/{day_str}/{yy}{constellation[1]}/{filename}"
@@ -266,6 +288,8 @@ def get_hdop(
         "RINEX",
         desired_datetime,
         desired_timezone,
+        lat,
+        lon,
         verbose=verbose,
         local_rinex_path=local_rinex_path,
         local_ionex_path=local_ionex_path,
@@ -365,6 +389,8 @@ def get_iono_delay(
         "IONEX",
         desired_datetime,
         desired_timezone,
+        lat,
+        lon,
         verbose=verbose,
         local_ionex_path=local_ionex_path,
     )
