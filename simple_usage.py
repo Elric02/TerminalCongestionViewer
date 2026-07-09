@@ -63,7 +63,17 @@ def process_terminal(terminal_coordinates_df, terminal_name, date, time_ranges):
     return uncertainty_results
 
 def get_weatherfactors(terminal_coordinates_df, terminal_name, date, time_ranges):
-    return {}
+    filtered_terminal_coordinates_df = terminal_coordinates_df.filter(pl.col('terminal') == terminal_name)
+    coords = []
+    for col in range(1,7):
+        if filtered_terminal_coordinates_df.select(pl.col('lon'+str(col))).to_series().to_list()[0] is not None:
+            coords.append((filtered_terminal_coordinates_df.select(pl.col('lon'+str(col))).to_series().to_list()[0], filtered_terminal_coordinates_df.select(pl.col('lat'+str(col))).to_series().to_list()[0]))
+    print("Getting weather data for coordinates:", coords[0][0], coords[0][1])
+    desired_datetime = [int(date.split("-")[0]), int(date.split("-")[1]), int(date.split("-")[2]), time_ranges[0][0][0] + 1, time_ranges[0][0][1], time_ranges[0][0][2]]
+    desired_timezone = "Europe/Stockholm"
+    weather_params = ["1", "6", "7", "9"]
+    weather_results = {"weather": weather_data.get_weather(coords[0][1], coords[0][0], desired_datetime, desired_timezone, weather_params)}
+    return weather_results
 
 def get_otherfactors(terminal_coordinates_df, terminal_name, date, time_ranges):
     filtered_terminal_coordinates_df = terminal_coordinates_df.filter(pl.col('terminal') == terminal_name)
@@ -71,19 +81,6 @@ def get_otherfactors(terminal_coordinates_df, terminal_name, date, time_ranges):
     for col in range(1,7):
         if filtered_terminal_coordinates_df.select(pl.col('lon'+str(col))).to_series().to_list()[0] is not None:
             coords.append((filtered_terminal_coordinates_df.select(pl.col('lon'+str(col))).to_series().to_list()[0], filtered_terminal_coordinates_df.select(pl.col('lat'+str(col))).to_series().to_list()[0]))
-    # Rework locations, I want the terminal locations rather than the weather stations
-    '''
-    locations_csv_path="weather_stations.csv"
-    locations_df = pl.read_csv(locations_csv_path)
-    for location in locations_df.iter_rows(named=True):
-        print("LOCATION:", location["Name"])
-        constellations = [["GPS", "n", "GN"]]
-        for constellation in constellations:
-            navdata = get_cddis_data(constellation, "RINEX")
-            get_hdop(location["Lat"], location["Lon"], navdata, constellation)
-            #get_iono_delay(navdata)
-            #get_iono_delay2(navdata)
-    '''
     print("Getting HDOP and iono delay for coordinates:", coords[0][0], coords[0][1])
     #constellations = [["Beidou", "f", "CN"], ["GLONASS", "g", "RN"], ["Galileo", "l", "EN"], ["GPS", "n", "GN"]]
     constellations = [["GPS", "n", "GN"]]
@@ -119,13 +116,14 @@ def get_otherfactors(terminal_coordinates_df, terminal_name, date, time_ranges):
 months = ["09"]
 days = ["11", "16", "21", "26"]
 hours = [7, 12, 16, 21]
+year = "2024"
 terminal_coordinates_df = pl.read_csv(terminals_csv)
 # Get a list of all the (unique) names of the terminals to process
 terminal_names = terminal_coordinates_df.select(pl.col('terminal')).unique().to_series().to_list()
 print("Terminals to process:", terminal_names)
 for month in months:
     for day in days:
-        date = f"2024-{month}-{day}"
+        date = f"{year}-{month}-{day}"
         for hour in hours:
             time_ranges = [
                 [[hour-1, 0, 0], [hour, 59, 59]]
@@ -144,8 +142,8 @@ for month in months:
                 otherfactors_results = {}
                 weatherfactors_results = {}
                 if mod_weatherfactors:
-                    weatherfactors_results = get_weatherfactors()
+                    weatherfactors_results = get_weatherfactors(terminal_coordinates_df, terminal_name, date, time_ranges)
                 if mod_otherfactors:
                     otherfactors_results = get_otherfactors(terminal_coordinates_df, terminal_name, date, time_ranges)
-                results = uncertainty_results | otherfactors_results
+                results = uncertainty_results | otherfactors_results | weatherfactors_results
                 export_results(results, date, time_ranges)
