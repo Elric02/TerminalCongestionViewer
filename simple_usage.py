@@ -17,9 +17,10 @@ terminals_csv = "terminal_coords.csv"
 import_method = "online" # "online" for download from KoDa or "local" if files are already in the tempdata folder
 delete_tempdata = True # Whether to delete all GTFS data from the tempdata folder after the operation is completed.
 # Enable/disable the different modules here
-mod_koda_import = True
-mod_uncertainty = True
-mod_externalfactors = True
+mod_koda_import = False
+mod_uncertainty = False
+mod_weatherfactors = True
+mod_otherfactors = False
 
 
 # FUNCTIONS
@@ -61,7 +62,10 @@ def process_terminal(terminal_coordinates_df, terminal_name, date, time_ranges):
         uncertainty_results = uncertainty_results | {"imprecision": {"imprecision_val": imprecision_pooled_mean, "imprecision_std": imprecision_pooled_std, "imprecision_trajs": imprecision_trajs}}
     return uncertainty_results
 
-def get_factors(terminal_coordinates_df, terminal_name, date, time_ranges):
+def get_weatherfactors(terminal_coordinates_df, terminal_name, date, time_ranges):
+    return {}
+
+def get_otherfactors(terminal_coordinates_df, terminal_name, date, time_ranges):
     filtered_terminal_coordinates_df = terminal_coordinates_df.filter(pl.col('terminal') == terminal_name)
     coords = []
     for col in range(1,7):
@@ -138,7 +142,10 @@ for month in months:
             for terminal_name in terminal_names:
                 uncertainty_results = process_terminal(terminal_coordinates_df, terminal_name, date, time_ranges)
                 otherfactors_results = {}
-                if mod_externalfactors:
-                    otherfactors_results = get_factors(terminal_coordinates_df, terminal_name, date, time_ranges)
+                weatherfactors_results = {}
+                if mod_weatherfactors:
+                    weatherfactors_results = get_weatherfactors()
+                if mod_otherfactors:
+                    otherfactors_results = get_otherfactors(terminal_coordinates_df, terminal_name, date, time_ranges)
                 results = uncertainty_results | otherfactors_results
                 export_results(results, date, time_ranges)
