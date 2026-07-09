@@ -101,7 +101,7 @@ def export_to_gpkg(df_vehiclepositions, df_clusters, terminal, date, export_inte
         pandas_df = subset.to_pandas()
  
         # POINTS GEOPACKAGE
-        output_points_gpkg = f"output/geopackage_{terminal}_{date}.gpkg"
+        output_points_gpkg = f"output/geopackages/geopackage_{terminal}_{date}.gpkg"
         geometry = [
             Point(lon, lat)
             for lon, lat in zip(pandas_df["longitude"], pandas_df["latitude"])
@@ -115,7 +115,7 @@ def export_to_gpkg(df_vehiclepositions, df_clusters, terminal, date, export_inte
 
         # PATHS GEOPACKAGE
         if paths_gpkg:
-            output_lines_gpkg = f"output/geopackage_{terminal}_{date}_paths.gpkg"
+            output_lines_gpkg = f"output/geopackages/geopackage_{terminal}_{date}_paths.gpkg"
             trips_list = subset["trip_id"].unique().sort().to_list()
             trajectory_gdfs = []
             for j, trip in enumerate(trips_list):
