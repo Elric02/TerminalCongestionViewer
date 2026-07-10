@@ -2,6 +2,9 @@ import polars as pl
 import json
 import os
 from datetime import datetime
+from pathlib import Path
+import ast
+import re
 # Local libs
 import modules.gtfs_import as gtfs_import
 import modules.uncertainty as uncertainty
@@ -19,8 +22,9 @@ delete_tempdata = True # Whether to delete all GTFS data from the tempdata folde
 # Enable/disable the different modules here
 mod_koda_import = False
 mod_uncertainty = False
-mod_weatherfactors = True
+mod_weatherfactors = False
 mod_otherfactors = False
+mod_process_results = True
 
 
 # FUNCTIONS
@@ -96,7 +100,7 @@ def get_otherfactors(terminal_coordinates_df, terminal_name, date, time_ranges):
             desired_datetime,
             desired_timezone,
             constellation,
-            verbose=True,
+            verbose=False,
             elevation_api=elevation_api
         )
         vtec = otherfactors_data.get_iono_delay(
@@ -105,45 +109,96 @@ def get_otherfactors(terminal_coordinates_df, terminal_name, date, time_ranges):
             desired_datetime,
             desired_timezone,
             constellation,
-            verbose=True
+            verbose=False
         )
         otherfactors_results[constellation[0]] = {"hdop": hdop, "vtec": vtec}
     return otherfactors_results
+
     
+def process_results(folder_path, output_csv=False, csv_path="output/merged_results.csv"):
+    """Read all .txt files in the results folder, each containing a single nested dict, flatten and merge them into one Polars DataFrame.
+    A datetime column is added, parsed from each filename. Optionnally write merged results to a CSV file.
+ 
+    :param folder_path: Path to the folder containing the .txt files.
+    :type folder_path: str
+    :param output_csv: Whether to output the merged DataFrame to a CSV file.
+    :type output_csv: bool
+    :param csv_path: Path for the output CSV file (saved inside folder_path).
+    :type csv_path: str
+    :return: The merged DataFrame.
+    :rtype: pl.DataFrame
+    """
+    
+    def _flatten_dict(d: dict, parent_key: str = "", sep: str = ".") -> dict:
+        items = {}
+        for key, value in d.items():
+            new_key = f"{parent_key}{sep}{key}" if parent_key else key
+            if isinstance(value, dict):
+                items.update(_flatten_dict(value, new_key, sep=sep))
+            else:
+                items[new_key] = value
+        return items
+
+    folder = Path(folder_path)
+    records = []
+    for txt_file in sorted(folder.glob("*.txt")):
+        print(f"Processing file: {txt_file.name}")
+        # Read the file, convert its content to a dict, flatten it, and extract the datetime from the filename
+        content = txt_file.read_text(encoding="utf-8").strip()
+        data = json.loads(content)
+        flat_data = _flatten_dict(data)
+        match = re.compile(r"results_(\d{4}-\d{2}-\d{2})_(\d+)-(\d+)-(\d+)-").match(txt_file.name)
+        date_str, hour, minute, second = match.groups()
+        flat_data["datetime"] = datetime.strptime(f"{date_str} {int(hour):02d}:{int(minute):02d}:{int(second):02d}", "%Y-%m-%d %H:%M:%S")
+        records.append(flat_data)
+    if not records:
+        raise ValueError(f"No .txt files found in {folder_path}")
+    results_df = pl.DataFrame(records)
+    if output_csv:
+        results_df.write_csv(csv_path)
+    return results_df
 
 
 # MAIN
-months = ["09"]
-days = ["11", "16", "21", "26"]
-hours = [7, 12, 16, 21]
-year = "2024"
-terminal_coordinates_df = pl.read_csv(terminals_csv)
-# Get a list of all the (unique) names of the terminals to process
-terminal_names = terminal_coordinates_df.select(pl.col('terminal')).unique().to_series().to_list()
-print("Terminals to process:", terminal_names)
-for month in months:
-    for day in days:
-        date = f"{year}-{month}-{day}"
-        for hour in hours:
-            time_ranges = [
-                [[hour-1, 0, 0], [hour, 59, 59]]
-            ]
-            print("****************************************")
-            print("****************************************")
-            print("****************************************")
-            print("****************************************")
-            print("NOW STARTING PROCESSING FOR DATE:", date, "TIME RANGE:", time_ranges)
-            print("****************************************")
-            print("****************************************")
-            print("****************************************")
-            print("****************************************")
-            for terminal_name in terminal_names:
-                uncertainty_results = process_terminal(terminal_coordinates_df, terminal_name, date, time_ranges)
-                otherfactors_results = {}
-                weatherfactors_results = {}
-                if mod_weatherfactors:
-                    weatherfactors_results = get_weatherfactors(terminal_coordinates_df, terminal_name, date, time_ranges)
-                if mod_otherfactors:
-                    otherfactors_results = get_otherfactors(terminal_coordinates_df, terminal_name, date, time_ranges)
-                results = uncertainty_results | otherfactors_results | weatherfactors_results
-                export_results(results, date, time_ranges)
+if mod_koda_import or mod_uncertainty or mod_weatherfactors or mod_otherfactors:
+    year = "2024"
+    months = ["09"]
+    days = ["01", "06"]
+    hours = [7, 12, 16, 21]
+    terminal_coordinates_df = pl.read_csv(terminals_csv)
+    # Get a list of all the (unique) names of the terminals to process
+    terminal_names = terminal_coordinates_df.select(pl.col('terminal')).unique().to_series().to_list()
+    print("Terminals to process:", terminal_names)
+    for month in months:
+        for day in days:
+            date = f"{year}-{month}-{day}"
+            for hour in hours:
+                time_ranges = [
+                    [[hour-1, 0, 0], [hour, 59, 59]]
+                ]
+                print("****************************************")
+                print("****************************************")
+                print("****************************************")
+                print("****************************************")
+                print("NOW STARTING PROCESSING FOR DATE:", date, "TIME RANGE:", time_ranges)
+                print("****************************************")
+                print("****************************************")
+                print("****************************************")
+                print("****************************************")
+                for terminal_name in terminal_names:
+                    uncertainty_results = process_terminal(terminal_coordinates_df, terminal_name, date, time_ranges)
+                    otherfactors_results = {}
+                    weatherfactors_results = {}
+                    if mod_weatherfactors:
+                        weatherfactors_results = get_weatherfactors(terminal_coordinates_df, terminal_name, date, time_ranges)
+                    if mod_otherfactors:
+                        otherfactors_results = get_otherfactors(terminal_coordinates_df, terminal_name, date, time_ranges)
+                    results = uncertainty_results | otherfactors_results | weatherfactors_results
+                    export_results(results, date, time_ranges)
+
+if mod_process_results:
+    results_df = process_results("output/results", output_csv=True)
+    print(results_df)
+
+
+print("*** DONE! ***")
