@@ -171,9 +171,9 @@ def get_cddis_data(
     yy = str(year)[-2:]
     # Day in format 000-356 as a string
     day_str = f"{epoch.timetuple().tm_yday:03d}"
-    igs_station = get_closest_igs_station(lat, lon, year, day_str)
 
     if type == "RINEX":
+        igs_station = get_closest_igs_station(lat, lon, year, day_str)
         download_dir = local_rinex_path
         os.makedirs(download_dir, exist_ok=True)
         # Daily broadcast navigation file
@@ -282,6 +282,7 @@ def get_hdop(
     :return: The estimated HDOP value.
     :rtype: float
     """
+    
     desired_timezone = ZoneInfo(desired_timezone)
     navdata = get_cddis_data(
         constellation,
@@ -383,6 +384,7 @@ def get_iono_delay(
     :return: The estimated VTEC value in TECU.
     :rtype: float
     """
+
     desired_timezone = ZoneInfo(desired_timezone)
     ionodata = get_cddis_data(
         constellation,

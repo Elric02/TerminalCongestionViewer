@@ -44,7 +44,6 @@ def koda_import_timeframe(provider, date, time_ranges, import_method="online", r
     :return: DataFrame containing the data from the specified timeframe
     """
 
-
     def appendNewPBSecond(hour, minute, second, total_df, MessageType, trips):
         try:
             if import_method == "online":

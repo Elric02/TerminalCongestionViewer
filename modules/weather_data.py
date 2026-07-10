@@ -4,9 +4,11 @@ import polars as pl
 import matplotlib.pyplot as plt
 
 
+# Note on time in the output file: for amount of precipitation and other aggregated data, row is up to that time (i.e. "6:00:00" -> data from 5:00:01 to 6:00:00)
+# Note2: time in the SMHI data is in UTC, the program translates it to local time (so time fields in output files will be in local time)
+
+
 # Path for the output CSV containing raw data from SMHI
-# Note on time in the output file: for amount of precipitation, row is up to that time (i.e. 6:00:00 -> data from 5:00:01 to 6:00:00)
-# Note2: time is in UTC!
 OUTPUT_CSV_RAW = lambda param, target_date : f"output/smhi/smhi_{param}_{target_date}.csv"
 # Path for the merged raw data CSV
 OUTPUT_CSV_MERGED = lambda target_date : f"output/smhi/smhi_merged_{target_date}.csv"
@@ -122,6 +124,7 @@ def get_weather(
     :return: The weather values per parameter.
     :rtype: dict
     """
+    
     # Get the name for each parameter
     resp = requests.get(PARAMETERS_URL)
     resp.raise_for_status()
