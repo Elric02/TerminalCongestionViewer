@@ -14,7 +14,7 @@ import modules.weather_data as weather_data
 
 # PARAMETERS
 #provider = "otraf"
-#terminal_coordinates = [(15.621, 58.416), (15.626, 58.416), (15.621, 58.419), (15.626, 58.419)]
+terminal_coordinates = [(15.621, 58.416), (15.626, 58.416), (15.621, 58.419), (15.626, 58.419)] # Linköping Central coordinates
 # Note: if a terminal has several operators, add 1 line in the CSV per operator, with the same terminal name (only the coordinates for the first row will be used)
 terminals_csv = "terminal_coords.csv"
 import_method = "online" # "online" for download from KoDa or "local" if files are already in the tempdata folder
@@ -24,7 +24,9 @@ mod_koda_import = False
 mod_uncertainty = False
 mod_weatherfactors = False
 mod_otherfactors = False
-mod_process_results = True
+mod_process_results = False
+
+gtfs_import.koda_import_timeframe("otraf", "2024-11-06", None, import_method="online", modulo=1, terminal_coordinates=terminal_coordinates, export_type="csv", delete_tempdata=True)
 
 
 # FUNCTIONS

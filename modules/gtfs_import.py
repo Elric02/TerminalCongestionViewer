@@ -22,9 +22,9 @@ def koda_import_timeframe(provider, date, time_ranges, import_method="online", r
     :type provider: str
     :param date: The desired date in format "YYYY-MM-DD"
     :type date: str
-    :param time_ranges: List of 2-element-lists of 3-elements-list: start and beginning of desired time frames,
+    :param time_ranges: If None, will take the whole day. Else, list of 2-element-lists of 3-elements-list: start and beginning of desired time frames,
         where sub-sub-lists take the shape [h, min, sec] (e.g. `[[[7, 0, 0], [7, 59, 59]]]` -> only 1 timeframe, from 07:00:00 to 07:59:59 both included)
-    :type time_ranges: list[list[list[int]]]
+    :type time_ranges: list[list[list[int]]] or None
     :param import_method: Where to get the data (available: online, local), where "online" is requesting directly from KoDa and "local" is from local files
     :type import_method: str
     :param realtimedata_path: (Only if import_method=="local") The path to the folder containing real-time GTFS data (e.g. "../data/realtime")
@@ -156,19 +156,28 @@ def koda_import_timeframe(provider, date, time_ranges, import_method="online", r
         routes = pl.read_csv(os.path.join(unzip_path, "routes.txt"), schema_overrides={'route_id': pl.Utf8, 'route_short_name': pl.Utf8})
         # Determine which hours will be needed to download from KoDa (real-time data)
         hours_to_download = []
-        for time_range in time_ranges:
-            hours = list(range(time_range[0][0], time_range[1][0] + 1))
-            for hour in hours:
-                if hour not in hours_to_download:
-                    hours_to_download.append(hour)
-        print("The following hours will be downloaded for realtime data:", hours_to_download)
+        if time_ranges is None:
+            hours_to_download = [-1]
+        else:
+            for time_range in time_ranges:
+                hours = list(range(time_range[0][0], time_range[1][0] + 1))
+                for hour in hours:
+                    if hour not in hours_to_download:
+                        hours_to_download.append(hour)
+            print("The following hours will be downloaded for realtime data:", hours_to_download)
         for hour_to_download in hours_to_download:
-            realtime_url = f'https://api.koda.trafiklab.se/KoDa/api/v2/gtfs-rt/{provider}/VehiclePositions?date={date}&key={api_key}&hour={hour_to_download}'
+            if hour_to_download == -1:
+                realtime_url = f'https://api.koda.trafiklab.se/KoDa/api/v2/gtfs-rt/{provider}/VehiclePositions?date={date}&key={api_key}'
+            else:
+                realtime_url = f'https://api.koda.trafiklab.se/KoDa/api/v2/gtfs-rt/{provider}/VehiclePositions?date={date}&key={api_key}&hour={hour_to_download}'
             # First request to prepare the file. This will take time if the file is not ready yet
             prepare_file_on_server(realtime_url)
             # Then download the file
             import_path = os.path.join("tempdata", "realtime")
-            zip_name = f"{provider}-VehiclePositions-{date}-{str(hour_to_download).zfill(2)}.zip"
+            if hour_to_download == -1:
+                zip_name = f"{provider}-VehiclePositions-{date}.zip"
+            else:
+                zip_name = f"{provider}-VehiclePositions-{date}-{str(hour_to_download).zfill(2)}.zip"
             download_data(os.path.join(import_path, zip_name), realtime_url)
             # Unzip the static data
             with py7zr.SevenZipFile(os.path.join(import_path, zip_name), mode='r') as archive:
@@ -179,7 +188,9 @@ def koda_import_timeframe(provider, date, time_ranges, import_method="online", r
 
     total_df = pl.DataFrame()
     MessageType = gtfs_realtime_pb2.FeedMessage()
-    
+
+    # If time_ranges is None, set it to the whole day (from 00:00:00 to 23:59:59)
+    time_ranges = [[[0, 0, 0], [23, 59, 59]]] if time_ranges is None else time_ranges
     for time_range in time_ranges:
         timestamp = 3600*time_range[0][0] + 60*time_range[0][1] + time_range[0][2]
         max_timestamp = 3600*time_range[1][0] + 60*time_range[1][1] + time_range[1][2]
