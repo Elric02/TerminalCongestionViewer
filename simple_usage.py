@@ -14,19 +14,19 @@ import modules.weather_data as weather_data
 
 # PARAMETERS
 #provider = "otraf"
-terminal_coordinates = [(15.621, 58.416), (15.626, 58.416), (15.621, 58.419), (15.626, 58.419)] # Linköping Central coordinates
+#terminal_coordinates = [(15.621, 58.416), (15.626, 58.416), (15.621, 58.419), (15.626, 58.419)] # Linköping Central coordinates
 # Note: if a terminal has several operators, add 1 line in the CSV per operator, with the same terminal name (only the coordinates for the first row will be used)
 terminals_csv = "terminal_coords.csv"
 import_method = "online" # "online" for download from KoDa or "local" if files are already in the tempdata folder
 delete_tempdata = True # Whether to delete all GTFS data from the tempdata folder after the operation is completed.
 # Enable/disable the different modules here
-mod_koda_import = False
-mod_uncertainty = False
-mod_weatherfactors = False
-mod_otherfactors = False
-mod_process_results = False
+mod_koda_import = True
+mod_uncertainty = True
+mod_weatherfactors = True
+mod_otherfactors = True
+mod_process_results = False # Independent module, takes the .txt results and processes them rather than adding something in the txt files
 
-gtfs_import.koda_import_timeframe("otraf", "2024-11-06", None, import_method="online", modulo=1, terminal_coordinates=terminal_coordinates, export_type="csv", delete_tempdata=True)
+#gtfs_import.koda_import_timeframe("otraf", "2024-11-06", [[[4, 37, 0], [4, 59, 0]]], import_method="online", modulo=1, terminal_coordinates=terminal_coordinates, export_type="csv", delete_tempdata=True)
 
 
 # FUNCTIONS

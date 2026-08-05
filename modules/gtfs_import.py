@@ -44,7 +44,7 @@ def koda_import_timeframe(provider, date, time_ranges, import_method="online", r
     :return: DataFrame containing the data from the specified timeframe
     """
 
-    def appendNewPBSecond(hour, minute, second, total_df, MessageType, trips):
+    def appendNewPBSecond(hour, minute, second, total_df, MessageType, trips, missing_trip_id):
         try:
             if import_method == "online":
                 vehiclepositions_path = os.path.join('tempdata', 'realtime', provider, 'VehiclePositions')
@@ -67,8 +67,18 @@ def koda_import_timeframe(provider, date, time_ranges, import_method="online", r
             directions_list = []
             route_short_name_list = []
             route_type_list = []
+            #with pl.Config(tbl_cols=-1):
+            #    print(temp_df)
             for row in temp_df.iter_rows():
-                trip_id = row[temp_df.get_column_index('trip_id')]
+                try:
+                    trip_id = row[temp_df.get_column_index('trip_id')]
+                except pl.exceptions.ColumnNotFoundError:
+                    missing_trip_id = True
+                    routes_list.append(-2)
+                    directions_list.append(-2)
+                    route_short_name_list.append(-2)
+                    route_type_list.append(-2)
+                    continue
                 if trip_id is not None:
                     trip = trips.filter(pl.col("trip_id") == int(trip_id))
                     if not trip.is_empty():
@@ -104,7 +114,7 @@ def koda_import_timeframe(provider, date, time_ranges, import_method="online", r
             total_df = pl.concat([total_df, temp_df], how="diagonal")
         except FileNotFoundError:
             print("File not found:", filename)
-        return total_df
+        return total_df, missing_trip_id
     
     def prepare_file_on_server(url):
         time_waited = 0
@@ -189,6 +199,8 @@ def koda_import_timeframe(provider, date, time_ranges, import_method="online", r
     total_df = pl.DataFrame()
     MessageType = gtfs_realtime_pb2.FeedMessage()
 
+    # Flag variable to check if any trip_id is missing in the data
+    missing_trip_id = False
     # If time_ranges is None, set it to the whole day (from 00:00:00 to 23:59:59)
     time_ranges = [[[0, 0, 0], [23, 59, 59]]] if time_ranges is None else time_ranges
     for time_range in time_ranges:
@@ -205,8 +217,10 @@ def koda_import_timeframe(provider, date, time_ranges, import_method="online", r
                 hour = str(hour).zfill(2)
                 minute = str(minute).zfill(2)
                 second = str(second).zfill(2)
-                total_df = appendNewPBSecond(hour, minute, second, total_df, MessageType, trips)
+                total_df, missing_trip_id = appendNewPBSecond(hour, minute, second, total_df, MessageType, trips, missing_trip_id)
             timestamp += 1
+    if missing_trip_id:
+        print("WARNING: some data points were missing trip_id, which means that route_id, direction_id, route_short_name and route_type could not be determined for those data points. All of these values are set to -2 for these cases.")
 
     # Export to file if asked
     if export_type == "csv":
