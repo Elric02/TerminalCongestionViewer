@@ -175,7 +175,7 @@ def comparison(df, comparison_type, terminal, date, time_range, min_points_in_tr
 
     if comparison_type == "routes":
         # Remove values with no route
-        df = df.filter(pl.col("route_short_name") != -1)
+        df = df.filter(pl.col("route_short_name") >= 0)
         route_values = df.select(pl.col("route_short_name")).unique().to_series().to_list()
         df_clusters = pl.DataFrame(schema={"trip_id": pl.Utf8, "cluster": pl.Int64})
         for iter_id, route in enumerate(route_values):
@@ -299,6 +299,17 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
     :return: Dict containing the imprecision results
     """
     data = get_data(terminal, providers, date, vehiclepositions_path=vehiclepositions_path)
+    start = datetime.timestamp(datetime.strptime(f"{date} {time_range[0]:02d}:00:00", "%Y-%m-%d %H:%M:%S"))
+    end = datetime.timestamp(datetime.strptime(f"{date} {(time_range[1]-1):02d}:59:59", "%Y-%m-%d %H:%M:%S"))
+    data = data.filter(
+        pl.col("timestamp")
+        .is_between(
+            start,
+            end,
+            closed="both",
+        )
+    )
+    print(f"Uncertainty module: restricted time from {time_range[0]:02d}:00:00 (timestamp {start}) to {(time_range[1]-1):02d}:59:59  (timestamp {end})")
     # comparison_type is "hours", "routes" or "clustered"
     results_df, routedirs_count = comparison(data, comparison_type="routes", terminal=terminal, date=date, time_range=time_range, min_points_in_traj=min_points_in_traj,
                             min_trips_for_clustering=min_trips_for_clustering, discard_if_several_clusters=discard_if_several_clusters,
