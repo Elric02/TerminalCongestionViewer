@@ -1,0 +1,2 @@
+{'features': ['GPS.hdop', 'GPS.vtec', 'weather.Lufttemperatur.value', 'weather.Relativ Luftfuktighet.value', 'weather.Nederbördsmängd.value', 'weather.Lufttryck reducerat havsytans nivå.value'], 'coefficients': array([ 2.89937410e-05,  1.28242406e-06, -2.16556534e-06, -8.13872104e-07,
+        5.27494927e-07,  5.13028007e-08,  8.44594056e-07]), 'metrics': {'r2': np.float64(0.20050756459940844), 'rmse': 6.030068553307807e-06, 'mae': 4.546222797467336e-06, 'observations': 125.0, 'rank': 7.0, 'singular_values_0': 15.452274435638154}}
