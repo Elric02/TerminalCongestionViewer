@@ -274,7 +274,7 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
     :param providers: The list of desired provider codes (e.g. ["otraf", "sl"]). Attention: if there are several operators, they must be in the same order than in the filename! All codes here:
         https://www.trafiklab.se/api/gtfs-datasets/gtfs-regional#operators-covered-by-this-dataset
     :type providers: list[str]
-    :param time_range: 2-element-list: Start and beginning of desired time frame (e.g. `[5, 24]` -> only 1 timeframe, from 05:00:00 to 23:59:59 both included). Used in time-comparison and results export naming
+    :param time_range: 2-element-list: Start and beginning of desired time frame (e.g. `[5, 24]` -> only 1 timeframe, from 05:00:00 to 23:59:59 both included)
     :type time_range: list[int]
     :param min_points_in_traj: Minimum number of points in a trajectory for it to be considered in the calculations
     :type min_points_in_traj: int

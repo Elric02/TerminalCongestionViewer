@@ -25,6 +25,10 @@ mod_uncertainty = True
 mod_weatherfactors = True
 mod_otherfactors = True
 mod_process_results = False # Independent module, takes the .txt results and processes them rather than adding something in the txt files
+year = "2024"
+months = ["09"]
+days = ["06"]
+hours = [7]
 
 #gtfs_import.koda_import_timeframe("otraf", "2024-11-06", [[[4, 37, 0], [4, 59, 0]]], import_method="online", modulo=1, terminal_coordinates=terminal_coordinates, export_type="csv", delete_tempdata=True)
 
@@ -43,10 +47,11 @@ def export_results(results, date, time_ranges):
 
 def process_terminal(terminal_coordinates_df, terminal_name, date, time_ranges):
     filtered_terminal_coordinates_df = terminal_coordinates_df.filter(pl.col('terminal') == terminal_name)
-    print("Now starting", terminal_name)
+    print("Now starting", terminal_name, "for the following date/times:", date, time_ranges)
     # Get a list of all the (unique) operators for that terminal
     providers = filtered_terminal_coordinates_df.select(pl.col('provider')).to_series().to_list()
     uncertainty_results = {}
+    export_path = "output/vehiclepositions/vehiclepositions_"+("_".join(providers))+"_"+date+".csv"
     if mod_koda_import:
         # Get the coordinates of the terminal to process
         coords = []
