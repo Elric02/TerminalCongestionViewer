@@ -20,6 +20,7 @@ import os
 import math
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.model_selection import KFold
 from sklearn.linear_model import LinearRegression
 
 sns.set_theme(style="whitegrid")
@@ -124,6 +125,112 @@ def print_result(label: str, results: dict[str, object]) -> None:
     print()
 
 
+def evaluate_kfold_regression(
+    df: pl.DataFrame,
+    feature_cols: list[str],
+    response_col: str,
+    k_folds: int = 5,
+    normalize_features: bool = False,
+    random_state: int = 42,
+) -> dict[str, object]:
+    subset_df = df.select(list(feature_cols) + [response_col]).drop_nans()
+    if subset_df.height < 2:
+        raise ValueError("Not enough rows to run k-fold validation.")
+
+    X = subset_df.select(list(feature_cols)).with_columns([pl.col(col).cast(pl.Float64) for col in feature_cols]).to_numpy()
+    y = subset_df.select(response_col).with_columns(pl.col(response_col).cast(pl.Float64)).to_numpy().flatten()
+
+    n_splits = min(k_folds, len(y))
+    if n_splits < 2:
+        raise ValueError("Need at least 2 observations for k-fold validation.")
+
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    fold_results = []
+
+    for fold_idx, (train_idx, test_idx) in enumerate(kf.split(X), start=1):
+        X_train, X_test = X[train_idx], X[test_idx]
+        y_train, y_test = y[train_idx], y[test_idx]
+
+        if normalize_features:
+            means = np.nanmean(X_train, axis=0)
+            stds = np.nanstd(X_train, axis=0, ddof=0)
+            stds[stds == 0.0] = 1.0
+            X_train = (X_train - means) / stds
+            X_test = (X_test - means) / stds
+
+        coefficients, _, _ = fit_linear_regression(X_train, y_train)
+
+        X_design_test = np.column_stack([np.ones(X_test.shape[0], dtype=float), X_test])
+        y_pred_test = X_design_test.dot(coefficients)
+
+        ss_res = np.sum((y_test - y_pred_test) ** 2)
+        ss_tot = np.sum((y_test - np.mean(y_test)) ** 2)
+        r2 = 1.0 - ss_res / ss_tot if ss_tot != 0.0 else float("nan")
+        rmse = float(np.sqrt(ss_res / y_test.shape[0]))
+        mae = float(np.mean(np.abs(y_test - y_pred_test)))
+
+        fold_results.append({
+            "fold": fold_idx,
+            "train_size": int(train_idx.size),
+            "test_size": int(test_idx.size),
+            "r2": float(r2),
+            "rmse": float(rmse),
+            "mae": float(mae),
+            "actual": y_test.astype(float),
+            "predicted": y_pred_test.astype(float),
+        })
+
+    r2_values = np.array([fold["r2"] for fold in fold_results], dtype=float)
+    rmse_values = np.array([fold["rmse"] for fold in fold_results], dtype=float)
+    mae_values = np.array([fold["mae"] for fold in fold_results], dtype=float)
+
+    summary = {
+        "r2_mean": float(np.nanmean(r2_values)),
+        "r2_std": float(np.nanstd(r2_values, ddof=0)),
+        "rmse_mean": float(np.nanmean(rmse_values)),
+        "rmse_std": float(np.nanstd(rmse_values, ddof=0)),
+        "mae_mean": float(np.nanmean(mae_values)),
+        "mae_std": float(np.nanstd(mae_values, ddof=0)),
+    }
+
+    return {
+        "folds": fold_results,
+        "summary": summary,
+    }
+
+
+def plot_kfold_predictions(cv_results: dict[str, object]) -> plt.Figure:
+    folds = cv_results["folds"]
+    n_folds = len(folds)
+    ncols = 3
+    nrows = math.ceil(n_folds / ncols)
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 4 * nrows))
+    axes = np.array(axes, dtype=object).reshape(-1)
+
+    for i, fold in enumerate(folds):
+        ax = axes[i]
+        print(fold)
+        actual = np.asarray(fold["actual"], dtype=float)
+        predicted = np.asarray(fold["predicted"], dtype=float)
+
+        ax.scatter(actual, predicted, alpha=0.7, s=20, color="steelblue")
+        min_val = float(np.min([actual.min(), predicted.min()]))
+        max_val = float(np.max([actual.max(), predicted.max()]))
+        ax.plot([min_val, max_val], [min_val, max_val], color="red", linestyle="--", linewidth=1)
+
+        ax.set_title(f"Fold {fold['fold']} (R²={fold['r2']:.3f})")
+        ax.set_xlabel("Desired value")
+        ax.set_ylabel("Guessed value")
+
+    for j in range(n_folds, len(axes)):
+        axes[j].axis("off")
+
+    fig.tight_layout(rect=[0, 0, 1, 0.98])
+    fig.suptitle("Actual vs predicted per CV fold", fontsize=14)
+    return fig
+
+
 def linear_regression(df, feature_names, response_name, export_txt_results, normalise_features) -> None:
     # Change names of cols if needed, else just keep the same
     feature_cols = [find_column(df.columns, name) for name in feature_names]
@@ -139,6 +246,7 @@ def linear_regression(df, feature_names, response_name, export_txt_results, norm
     print("=========================")
     print(f"Response: {response_col}")
     print(f"Total combinations evaluated: {len(results)}\n")
+
     if export_txt_results:
         export_txt_path = "../output/factors_linreg.txt"
         os.makedirs(os.path.dirname(export_txt_path), exist_ok=True)
@@ -146,10 +254,38 @@ def linear_regression(df, feature_names, response_name, export_txt_results, norm
             out_file.write(str(sorted_results[-1]))
         print(f"Best results exported at", export_txt_path)
 
-    print_result("Best", sorted_results[-1])
-    #print_result("Worst", sorted_results[0])
+    best_result = sorted_results[-1]
+    print_result("Best", best_result)
 
+    best_features = best_result["features"]
+    cv_results = evaluate_kfold_regression(
+        df=df,
+        feature_cols=best_features,
+        response_col=response_col,
+        k_folds=5,
+        normalize_features=normalise_features,
+    )
 
+    print("5-fold cross-validation")
+    print("-----------------------")
+    print(f"Features: {', '.join(best_features)}")
+    for fold in cv_results["folds"]:
+        print(
+            f"Fold {fold['fold']}: train={fold['train_size']}, test={fold['test_size']}, "
+            f"R^2={fold['r2']:.6g}, RMSE={fold['rmse']:.6g}, MAE={fold['mae']:.6g}"
+        )
+    summary = cv_results["summary"]
+    print()
+    print("Cross-validation summary")
+    print("------------------------")
+    print(f"Mean R^2: {summary['r2_mean']:.6g} ± {summary['r2_std']:.6g}")
+    print(f"Mean RMSE: {summary['rmse_mean']:.6g} ± {summary['rmse_std']:.6g}")
+    print(f"Mean MAE: {summary['mae_mean']:.6g} ± {summary['mae_std']:.6g}")
+    print()
+
+    # Add the fold-by-fold actual vs predicted plot
+    fold_plot = plot_kfold_predictions(cv_results)
+    return fold_plot
 
 
 # --------------------------------------------------------------------------- #
