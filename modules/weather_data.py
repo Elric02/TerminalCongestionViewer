@@ -134,24 +134,35 @@ def get_weather(
     target_date = f"{desired_datetime[0]}-{desired_datetime[1]:02d}-{desired_datetime[2]:02d}"
     weather_values = {}
     for param in weather_parameters:
-        all_stations = get_all_stations(STATIONS_URL(param))
-        # Get closest station
-        closest_id, closest_meta = min(
-            all_stations.items(),
-            key=lambda item: (item[1]["latitude"] - lat) ** 2 + (item[1]["longitude"] - lon) ** 2,
-        )
-        station_meta = {"id": closest_id, **closest_meta}
-        print(f"Selected station for parameter {param}: {station_meta['name']} ({station_meta['id']})")
+        # Variable that will increase if there is no data for the closest station for the desired time
+        closest_station_loop = 0
+        while True:
+            all_stations = get_all_stations(STATIONS_URL(param))
+            # Rank stations by proximity and select the x-th closest station. closest_station_loop == 0 => closest station, 1 => second closest, etc.
+            sorted_stations = sorted(
+                all_stations.items(),
+                key=lambda item: (item[1]["latitude"] - lat) ** 2 + (item[1]["longitude"] - lon) ** 2,
+            )
+            closest_id, closest_meta = sorted_stations[closest_station_loop]
+            station_meta = {"id": closest_id, **closest_meta}
+            print(f"Selected station for parameter {param}: {station_meta['name']} ({station_meta['id']})")
 
-        weather_data = fetch_weather_for_date(
-            param,
-            station_meta,
-            OBS_URL,
-            target_date=target_date,
-            desired_timezone=desired_timezone,
-        )
-        target_time = f"{desired_datetime[3]:02d}:00"
-        filtered_values = weather_data.filter(pl.col("Time") == target_time)["Value"].to_list()
+            weather_data = fetch_weather_for_date(
+                param,
+                station_meta,
+                OBS_URL,
+                target_date=target_date,
+                desired_timezone=desired_timezone,
+            )
+            target_time = f"{desired_datetime[3]:02d}:00"
+            filtered_values = weather_data.filter(pl.col("Time") == target_time)["Value"].to_list()
+            # Check if the data contains a value for the desired time
+            if len(filtered_values) == 0:
+                closest_station_loop += 1
+                print("Selected station has no data for the required time. Selecting next closest station...")
+                continue
+            else:
+                break
         weather_values[param_descs[param]] = {"value": filtered_values[0], "station_id": station_meta["id"]}
 
         if output_csv:
