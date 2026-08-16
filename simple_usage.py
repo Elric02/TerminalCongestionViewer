@@ -20,18 +20,18 @@ terminals_csv = "terminal_coords.csv"
 import_method = "online" # "online" for download from KoDa or "local" if files are already in the tempdata folder
 delete_tempdata = True # Whether to delete all GTFS data from the tempdata folder after the operation is completed.
 # Enable/disable the different modules here
-mod_koda_import = False
-mod_uncertainty = False
-mod_weatherfactors = False
-mod_otherfactors = False
+mod_koda_import = True
+mod_uncertainty = True
+mod_weatherfactors = True
+mod_otherfactors = True
 mod_process_results = False # Independent module, takes the .txt results and processes them rather than adding something in the txt files
 year = "2024"
-months = ["09"]
-days = ["06"]
-hours = [21]
+months = ["01", "07"]
+days = ["01", "06", "11", "16", "21", "26"]
+hours = [7, 16]
 
 # Whole day import
-gtfs_import.koda_import_timeframe("otraf", "2024-09-01", None, import_method="online", modulo=1, terminal_coordinates=terminal_coordinates, export_type="csv", delete_tempdata=True)
+#gtfs_import.koda_import_timeframe("otraf", "2024-09-01", None, import_method="online", modulo=1, terminal_coordinates=terminal_coordinates, export_type="csv", delete_tempdata=True)
 
 
 # FUNCTIONS
@@ -70,7 +70,7 @@ def process_terminal(terminal_coordinates_df, terminal_name, date, time_ranges):
         total_df = pl.concat(total_df_list, how="diagonal_relaxed")
         total_df.write_csv(export_path)
     if mod_uncertainty:
-        imprecision_pooled_mean, imprecision_pooled_std, imprecision_trajs = uncertainty.get_imprecision(terminal_name, date, providers, time_range=[time_ranges[0][0][0], time_ranges[-1][1][0]+1], vehiclepositions_path=export_path, paths_gpkg=False, verbose=False, dbscan_global_min_samples=3, dbscan_global_eps_percentile=20)
+        imprecision_pooled_mean, imprecision_pooled_std, imprecision_trajs = uncertainty.get_imprecision(terminal_name, date, providers, time_range=[time_ranges[0][0][0], time_ranges[-1][1][0]+1], min_trips_for_clustering=3, vehiclepositions_path=export_path, paths_gpkg=False, verbose=False, dbscan_global_min_samples=3, dbscan_global_eps_percentile=20)
         uncertainty_results = uncertainty_results | {"imprecision": {"imprecision_val": imprecision_pooled_mean, "imprecision_std": imprecision_pooled_std, "imprecision_trajs": imprecision_trajs}}
     return uncertainty_results
 
@@ -94,7 +94,7 @@ def get_otherfactors(terminal_coordinates_df, terminal_name, date, time_ranges):
         if filtered_terminal_coordinates_df.select(pl.col('lon'+str(col))).to_series().to_list()[0] is not None:
             coords.append((filtered_terminal_coordinates_df.select(pl.col('lon'+str(col))).to_series().to_list()[0], filtered_terminal_coordinates_df.select(pl.col('lat'+str(col))).to_series().to_list()[0]))
     print("Getting HDOP and iono delay for coordinates:", coords[0][0], coords[0][1])
-    #constellations = [["Beidou", "f", "CN"], ["GLONASS", "g", "RN"], ["Galileo", "l", "EN"], ["GPS", "n", "GN"]]
+    #constellations = [["BeiDou", "f", "CN"], ["GLONASS", "g", "RN"], ["Galileo", "l", "EN"], ["GPS", "n", "GN"]]
     constellations = [["GPS", "n", "GN"]]
     # Set desired time as 1h later than the beginning of the time range (so that it is in the middle when the time range is of 2h)
     desired_datetime = [int(date.split("-")[0]), int(date.split("-")[1]), int(date.split("-")[2]), time_ranges[0][0][0] + 1, time_ranges[0][0][1], time_ranges[0][0][2]]

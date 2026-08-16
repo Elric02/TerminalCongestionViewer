@@ -12,7 +12,7 @@ import os
 def get_data(terminal, providers, date, vehiclepositions_path=None):
     if vehiclepositions_path is None:
         vehiclepositions_path = f"output/vehiclepositions/vehiclepositions_terminal_{terminal}_{("_".join(providers))}_{date}.csv"
-    df = pl.read_csv(vehiclepositions_path, schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8})
+    df = pl.read_csv(vehiclepositions_path, schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8, 'route_short_name': pl.Utf8})
     return df
 
 def format_data(df, min_points_in_traj, verbose):
