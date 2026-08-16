@@ -174,8 +174,8 @@ def comparison(df, comparison_type, terminal, date, time_range, min_points_in_tr
             results.append(quick_analysis(dfd, measure="dfd", name=f"{date} {hour:02d}h"))
 
     if comparison_type == "routes":
-        # Remove values with no route
-        df = df.filter(pl.col("route_short_name") >= 0)
+        # Remove values with no route or the special -2 sentinel
+        df = df.filter((pl.col("route_short_name") != -1) & (pl.col("route_short_name") != -2))
         route_values = df.select(pl.col("route_short_name")).unique().to_series().to_list()
         df_clusters = pl.DataFrame(schema={"trip_id": pl.Utf8, "cluster": pl.Int64})
         for iter_id, route in enumerate(route_values):
