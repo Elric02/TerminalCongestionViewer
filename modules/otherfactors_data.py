@@ -12,6 +12,7 @@ import warnings
 import libs.ionex as ionex
 import pandas as pd
 from pyproj import Transformer
+import re
 
 
 # IMPORTANT NOTE: for now, login is done according to this page: https://nsidc.org/data/user-resources/help-center/creating-netrc-file-earthdata-login
@@ -153,6 +154,39 @@ def get_alt(
     return elevation
 
 
+def fix_time_system_corr_line(line):
+    """Rewrite a TIME SYSTEM CORR header line to the exact RINEX 3.04
+    fixed-column widths that georinex expects (A4,1x,D17.10,D16.9,I7,I5)."""
+    m = re.match(r'^(\S+)\s+([\-0-9.D+Ee]+)\s+([\-0-9.D+Ee]+)\s+(\-?\d+)\s+(\-?\d+)', line)
+    if not m:
+        return line  # leave untouched if it doesn't match the expected shape
+    kind, a, b, i1, i2 = m.groups()
+    a = float(a.replace('D', 'E'))
+    b = float(b.replace('D', 'E'))
+    i1, i2 = int(i1), int(i2)
+    newline = f'{kind:<4} {a:17.10E}{b:16.9E}{i1:7d}{i2:5d}'
+    newline = newline.ljust(60) + 'TIME SYSTEM CORR'
+    return newline + '\n'
+ 
+def fix_rinex_nav_file(in_path, out_path):
+    """Fixes the crash that happens when using RINEX files from non-GPS constellations"""
+    with open(in_path, 'r', encoding='ascii', errors='replace') as f:
+        lines = f.readlines()
+ 
+    out_lines = []
+    in_header = True
+    for line in lines:
+        if in_header and 'TIME SYSTEM CORR' in line:
+            out_lines.append(fix_time_system_corr_line(line.rstrip('\r\n')))
+        else:
+            out_lines.append(line)
+        if 'END OF HEADER' in line:
+            in_header = False
+ 
+    with open(out_path, 'w', encoding='ascii') as f:
+        f.writelines(out_lines)
+
+
 def get_cddis_data(
     constellation,
     type,
@@ -217,7 +251,12 @@ def get_cddis_data(
         pd.options.future.infer_string = False # disable new StringDtype inference, else loading Rinex data causes a crash
         # Parse the navigation file
         if type == "RINEX":
-            navdata = glp.parsers.rinex_nav.RinexNav(local_file)
+            if constellation[0] == "GLONASS" or constellation[0] == "BeiDou":
+                fixed_local_file = f'{local_file.split(".rnx")[0]}_fixed.rnx'
+                fix_rinex_nav_file(local_file, fixed_local_file)
+                navdata = glp.parsers.rinex_nav.RinexNav(fixed_local_file)
+            else:
+                navdata = glp.parsers.rinex_nav.RinexNav(local_file)
             return navdata
         elif type == "IONEX":
             ionodata = ionex.read_ionex(local_file)
