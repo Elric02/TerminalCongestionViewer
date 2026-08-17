@@ -20,15 +20,19 @@ terminals_csv = "terminal_coords.csv"
 import_method = "online" # "online" for download from KoDa or "local" if files are already in the tempdata folder
 delete_tempdata = True # Whether to delete all GTFS data from the tempdata folder after the operation is completed.
 # Enable/disable the different modules here
-mod_koda_import = True
-mod_uncertainty = True
-mod_weatherfactors = True
-mod_otherfactors = True
-mod_process_results = False # Independent module, takes the .txt results and processes them rather than adding something in the txt files
+mod_koda_import = False
+mod_uncertainty = False
+mod_weatherfactors = False
+mod_otherfactors = False
+mod_process_results = True # Independent module, takes the .txt results and processes them rather than adding something in the txt files
 year = "2024"
 months = ["01", "07"]
 days = ["01", "06", "11", "16", "21", "26"]
 hours = [7, 16]
+
+results_folder_path = "output/results/A1 huddinge"
+results_csv_path = "output/merged_results_huddinge.csv"
+
 
 # Whole day import
 #gtfs_import.koda_import_timeframe("otraf", "2024-09-01", None, import_method="online", modulo=1, terminal_coordinates=terminal_coordinates, export_type="csv", delete_tempdata=True)
@@ -201,7 +205,7 @@ if mod_koda_import or mod_uncertainty or mod_weatherfactors or mod_otherfactors:
                     export_results(results, date, time_ranges)
 
 if mod_process_results:
-    results_df = process_results("output/results", output_csv=True)
+    results_df = process_results(results_folder_path, output_csv=True, csv_path=results_csv_path)
     print(results_df)
 
 

@@ -34,8 +34,8 @@ FEATURE_NAMES = [
     "weather.Lufttryck reducerat havsytans nivå.value",
 ]
 RESPONSE_NAME = "imprecision.imprecision_val"
-CSV_PATH = "merged_results.csv"
-EXPORT_TXT_RESULTS = True
+CSV_PATHS = ["merged_results_linköping.csv", "merged_results_norrköping.csv", "merged_results_bålsta.csv", "merged_results_huddinge.csv"]
+EXPORT_TXT_RESULTS = False
 NORMALISE_FEATURES = False
 
 
@@ -231,61 +231,168 @@ def plot_kfold_predictions(cv_results: dict[str, object]) -> plt.Figure:
     return fig
 
 
+def plot_kfold_predictions_multi_dataset(folds: list[dict]) -> plt.Figure:
+    """Plot k-fold predictions organized by dataset."""
+    datasets = sorted(set(fold["dataset"] for fold in folds))
+    colors = ["steelblue", "darkorange", "seagreen", "crimson"]
+    n_datasets = len(datasets)
+    
+    fig, axes = plt.subplots(1, n_datasets, figsize=(5 * n_datasets, 4))
+    if n_datasets == 1:
+        axes = [axes]
+    else:
+        axes = np.array(axes).reshape(-1)
+    
+    for d_idx, dataset in enumerate(datasets):
+        ax = axes[d_idx]
+        dataset_folds = [fold for fold in folds if fold["dataset"] == dataset]
+        
+        for fold in dataset_folds:
+            actual = np.asarray(fold["actual"], dtype=float)
+            predicted = np.asarray(fold["predicted"], dtype=float)
+            ax.scatter(actual, predicted, alpha=0.6, s=20, color=colors[d_idx % len(colors)], label=f"Fold {fold['fold']}")
+        
+        # Plot perfect prediction line
+        all_actual = np.concatenate([np.asarray(fold["actual"], dtype=float) for fold in dataset_folds])
+        all_predicted = np.concatenate([np.asarray(fold["predicted"], dtype=float) for fold in dataset_folds])
+        min_val = float(np.min([all_actual.min(), all_predicted.min()]))
+        max_val = float(np.max([all_actual.max(), all_predicted.max()]))
+        ax.plot([min_val, max_val], [min_val, max_val], color="red", linestyle="--", linewidth=1)
+        
+        # Calculate mean R² for dataset
+        mean_r2 = np.mean([fold["r2"] for fold in dataset_folds])
+        ax.set_title(f"{dataset} (Mean R²={mean_r2:.3f})")
+        ax.set_xlabel("Desired value")
+        ax.set_ylabel("Guessed value")
+        ax.legend(fontsize=8)
+    
+    fig.tight_layout(rect=[0, 0, 1, 0.98])
+    fig.suptitle("Actual vs predicted per CV fold by dataset", fontsize=14)
+    return fig
+
+
 def linear_regression(df, feature_names, response_name, export_txt_results, normalise_features) -> None:
     # Change names of cols if needed, else just keep the same
     feature_cols = [find_column(df.columns, name) for name in feature_names]
     response_col = find_column(df.columns, response_name)
 
-    results = evaluate_combinations(df, feature_cols, response_col, normalise_features)
-    if not results:
-        raise ValueError("No valid feature combinations found after filtering missing values.")
+    # Check if we have dataset column
+    if "dataset" in df.columns:
+        datasets = sorted(df["dataset"].unique().to_list())
+        all_folds_results = []
+        
+        for dataset in datasets:
+            dataset_df = df.filter(pl.col("dataset") == dataset)
+            print("\n" + "="*60)
+            print(f"Dataset: {dataset}")
+            print("="*60)
+            
+            results = evaluate_combinations(dataset_df, feature_cols, response_col, normalise_features)
+            if not results:
+                print(f"No valid feature combinations found for {dataset}.")
+                continue
 
-    sorted_results = sorted(results, key=lambda item: item["metrics"]["r2"] if not np.isnan(item["metrics"]["r2"]) else -float("inf"))
+            sorted_results = sorted(results, key=lambda item: item["metrics"]["r2"] if not np.isnan(item["metrics"]["r2"]) else -float("inf"))
 
-    print("Linear regression summary")
-    print("=========================")
-    print(f"Response: {response_col}")
-    print(f"Total combinations evaluated: {len(results)}\n")
+            print("Linear regression summary")
+            print("=========================")
+            print(f"Response: {response_col}")
+            print(f"Total combinations evaluated: {len(results)}\n")
 
-    if export_txt_results:
-        export_txt_path = "../output/factors_linreg.txt"
-        os.makedirs(os.path.dirname(export_txt_path), exist_ok=True)
-        with open(export_txt_path, "w", encoding="utf-8") as out_file:
-            out_file.write(str(sorted_results[-1]))
-        print(f"Best results exported at", export_txt_path)
+            if export_txt_results:
+                export_txt_path = f"../output/factors_linreg_{dataset}.txt"
+                os.makedirs(os.path.dirname(export_txt_path), exist_ok=True)
+                with open(export_txt_path, "w", encoding="utf-8") as out_file:
+                    out_file.write(str(sorted_results[-1]))
+                print(f"Best results exported at", export_txt_path)
 
-    best_result = sorted_results[-1]
-    print_result("Best", best_result)
+            best_result = sorted_results[-1]
+            print_result("Best", best_result)
 
-    best_features = best_result["features"]
-    cv_results = evaluate_kfold_regression(
-        df=df,
-        feature_cols=best_features,
-        response_col=response_col,
-        k_folds=5,
-        normalize_features=normalise_features,
-    )
+            best_features = best_result["features"]
+            cv_results = evaluate_kfold_regression(
+                df=dataset_df,
+                feature_cols=best_features,
+                response_col=response_col,
+                k_folds=5,
+                normalize_features=normalise_features,
+            )
 
-    print("5-fold cross-validation")
-    print("-----------------------")
-    print(f"Features: {', '.join(best_features)}")
-    for fold in cv_results["folds"]:
-        print(
-            f"Fold {fold['fold']}: train={fold['train_size']}, test={fold['test_size']}, "
-            f"R^2={fold['r2']:.6g}, RMSE={fold['rmse']:.6g}, MAE={fold['mae']:.6g}"
+            print("5-fold cross-validation")
+            print("-----------------------")
+            print(f"Features: {', '.join(best_features)}")
+            for fold in cv_results["folds"]:
+                print(
+                    f"Fold {fold['fold']}: train={fold['train_size']}, test={fold['test_size']}, "
+                    f"R^2={fold['r2']:.6g}, RMSE={fold['rmse']:.6g}, MAE={fold['mae']:.6g}"
+                )
+            summary = cv_results["summary"]
+            print()
+            print("Cross-validation summary")
+            print("------------------------")
+            print(f"Mean R^2: {summary['r2_mean']:.6g} ± {summary['r2_std']:.6g}")
+            print(f"Mean RMSE: {summary['rmse_mean']:.6g} ± {summary['rmse_std']:.6g}")
+            print(f"Mean MAE: {summary['mae_mean']:.6g} ± {summary['mae_std']:.6g}")
+            print()
+            
+            # Store fold results with dataset info
+            for fold in cv_results["folds"]:
+                fold["dataset"] = dataset
+            all_folds_results.extend(cv_results["folds"])
+        
+        # Create combined k-fold plot with all datasets
+        if all_folds_results:
+            plot_kfold_predictions_multi_dataset(all_folds_results)
+    else:
+        results = evaluate_combinations(df, feature_cols, response_col, normalise_features)
+        if not results:
+            raise ValueError("No valid feature combinations found after filtering missing values.")
+
+        sorted_results = sorted(results, key=lambda item: item["metrics"]["r2"] if not np.isnan(item["metrics"]["r2"]) else -float("inf"))
+
+        print("Linear regression summary")
+        print("=========================")
+        print(f"Response: {response_col}")
+        print(f"Total combinations evaluated: {len(results)}\n")
+
+        if export_txt_results:
+            export_txt_path = "../output/factors_linreg.txt"
+            os.makedirs(os.path.dirname(export_txt_path), exist_ok=True)
+            with open(export_txt_path, "w", encoding="utf-8") as out_file:
+                out_file.write(str(sorted_results[-1]))
+            print(f"Best results exported at", export_txt_path)
+
+        best_result = sorted_results[-1]
+        print_result("Best", best_result)
+
+        best_features = best_result["features"]
+        cv_results = evaluate_kfold_regression(
+            df=df,
+            feature_cols=best_features,
+            response_col=response_col,
+            k_folds=5,
+            normalize_features=normalise_features,
         )
-    summary = cv_results["summary"]
-    print()
-    print("Cross-validation summary")
-    print("------------------------")
-    print(f"Mean R^2: {summary['r2_mean']:.6g} ± {summary['r2_std']:.6g}")
-    print(f"Mean RMSE: {summary['rmse_mean']:.6g} ± {summary['rmse_std']:.6g}")
-    print(f"Mean MAE: {summary['mae_mean']:.6g} ± {summary['mae_std']:.6g}")
-    print()
 
-    # Add the fold-by-fold actual vs predicted plot
-    fold_plot = plot_kfold_predictions(cv_results)
-    return fold_plot
+        print("5-fold cross-validation")
+        print("-----------------------")
+        print(f"Features: {', '.join(best_features)}")
+        for fold in cv_results["folds"]:
+            print(
+                f"Fold {fold['fold']}: train={fold['train_size']}, test={fold['test_size']}, "
+                f"R^2={fold['r2']:.6g}, RMSE={fold['rmse']:.6g}, MAE={fold['mae']:.6g}"
+            )
+        summary = cv_results["summary"]
+        print()
+        print("Cross-validation summary")
+        print("------------------------")
+        print(f"Mean R^2: {summary['r2_mean']:.6g} ± {summary['r2_std']:.6g}")
+        print(f"Mean RMSE: {summary['rmse_mean']:.6g} ± {summary['rmse_std']:.6g}")
+        print(f"Mean MAE: {summary['mae_mean']:.6g} ± {summary['mae_std']:.6g}")
+        print()
+
+        # Add the fold-by-fold actual vs predicted plot
+        plot_kfold_predictions(cv_results)
 
 
 # --------------------------------------------------------------------------- #
@@ -293,16 +400,49 @@ def linear_regression(df, feature_names, response_name, export_txt_results, norm
 # --------------------------------------------------------------------------- #
 def plot_target_distribution(df: pl.DataFrame, target: str):
     """Histogram + KDE of the target variable. Check for skew, outliers, multimodality."""
-    values = df[target].to_numpy()
- 
-    fig, ax = plt.subplots(figsize=(7, 5))
-    sns.histplot(values, kde=True, ax=ax, color="steelblue", edgecolor="white")
-    ax.axvline(np.mean(values), color="red", linestyle="--", label=f"mean")
-    ax.axvline(np.median(values), color="orange", linestyle="--", label=f"median")
-    ax.set_title(f"Distribution of target: {target}")
-    ax.set_xlabel(target)
-    ax.legend()
-    fig.tight_layout()
+    if "dataset" in df.columns:
+        datasets = sorted(df["dataset"].unique().to_list())
+        n_datasets = len(datasets)
+        ncols = 2
+        nrows = math.ceil(n_datasets / ncols)
+        
+        fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 4 * nrows))
+        axes = np.array(axes).reshape(-1)
+        
+        colors = ["steelblue", "darkorange", "seagreen", "crimson"]
+        
+        # Calculate global min/max across all datasets
+        all_values = df[target].to_numpy()
+        x_min, x_max = float(np.nanmin(all_values)), float(np.nanmax(all_values))
+        
+        for i, dataset in enumerate(datasets):
+            dataset_df = df.filter(pl.col("dataset") == dataset)
+            values = dataset_df[target].to_numpy()
+            sns.histplot(values, kde=True, ax=axes[i], color=colors[i % len(colors)], edgecolor="white")
+            axes[i].axvline(np.mean(values), color="red", linestyle="--", label="mean")
+            axes[i].axvline(np.median(values), color="orange", linestyle="--", label="median")
+            axes[i].set_title(f"{dataset}: {target}")
+            axes[i].set_xlabel(target)
+            axes[i].set_xlim(x_min, x_max)
+            axes[i].legend()
+        
+        # Hide unused subplots
+        for j in range(n_datasets, len(axes)):
+            axes[j].axis("off")
+        
+        fig.tight_layout(rect=[0, 0, 1, 0.96])
+        fig.suptitle(f"Distribution of target: {target}", y=0.995, fontsize=14)
+    else:
+        fig, ax = plt.subplots(figsize=(7, 5))
+        values = df[target].to_numpy()
+        sns.histplot(values, kde=True, ax=ax, color="steelblue", edgecolor="white")
+        ax.axvline(np.mean(values), color="red", linestyle="--", label="mean")
+        ax.axvline(np.median(values), color="orange", linestyle="--", label="median")
+        ax.set_title(f"Distribution of target: {target}")
+        ax.set_xlabel(target)
+        ax.legend()
+        fig.tight_layout()
+    
     return fig
 
  
@@ -317,10 +457,20 @@ def plot_feature_distributions(df: pl.DataFrame, features: list[str]):
  
     fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 4 * nrows))
     axes = np.array(axes).reshape(-1)
+    
+    colors = ["seagreen", "steelblue", "darkorange", "crimson"]
  
     for i, feat in enumerate(features):
-        values = df[feat].to_numpy()
-        sns.histplot(values, kde=True, ax=axes[i], color="seagreen", edgecolor="white")
+        if "dataset" in df.columns:
+            datasets = df["dataset"].unique().to_list()
+            for j, dataset in enumerate(sorted(datasets)):
+                dataset_df = df.filter(pl.col("dataset") == dataset)
+                values = dataset_df[feat].to_numpy()
+                sns.histplot(values, kde=True, ax=axes[i], color=colors[j % len(colors)], edgecolor="white", alpha=0.6, label=dataset)
+            axes[i].legend()
+        else:
+            values = df[feat].to_numpy()
+            sns.histplot(values, kde=True, ax=axes[i], color="seagreen", edgecolor="white")
         axes[i].set_title(feat)
  
     for j in range(n, len(axes)):
@@ -360,16 +510,31 @@ def plot_feature_vs_target_scatter(df: pl.DataFrame, target: str, features: list
  
     fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 4 * nrows))
     axes = np.array(axes).reshape(-1)
- 
-    y = df[target].to_numpy()
+    
+    colors = ["steelblue", "darkorange", "seagreen", "crimson"]
  
     for i, feat in enumerate(features):
-        x = df[feat].to_numpy()
-        sns.regplot(
-            x=x, y=y, ax=axes[i], scatter_kws={"alpha": 0.6, "s": 20},
-            line_kws={"color": "red"},
-        )
-        corr = np.corrcoef(x, y)[0, 1]
+        if "dataset" in df.columns:
+            datasets = df["dataset"].unique().to_list()
+            for j, dataset in enumerate(sorted(datasets)):
+                dataset_df = df.filter(pl.col("dataset") == dataset)
+                x = dataset_df[feat].to_numpy()
+                y = dataset_df[target].to_numpy()
+                axes[i].scatter(x, y, alpha=0.6, s=20, color=colors[j % len(colors)], label=dataset)
+            axes[i].legend()
+            # Calculate correlation on full data
+            x_full = df[feat].to_numpy()
+            y_full = df[target].to_numpy()
+            corr = np.corrcoef(x_full, y_full)[0, 1]
+        else:
+            x = df[feat].to_numpy()
+            y = df[target].to_numpy()
+            sns.regplot(
+                x=x, y=y, ax=axes[i], scatter_kws={"alpha": 0.6, "s": 20},
+                line_kws={"color": "red"},
+            )
+            corr = np.corrcoef(x, y)[0, 1]
+        
         axes[i].set_title(f"{feat} vs {target}  (r={corr:.2f})")
         axes[i].set_xlabel(feat)
         axes[i].set_ylabel(target)
@@ -388,9 +553,16 @@ def plot_feature_vs_target_scatter(df: pl.DataFrame, target: str, features: list
 def plot_pairwise_scatter_matrix(df: pl.DataFrame, target: str, features: list[str]):
     """Full pairplot across target + features to spot interactions/collinearity."""
     cols = [target] + features
+    if "dataset" in df.columns:
+        cols.append("dataset")
     pdf = df.select(cols).to_pandas()  # seaborn's pairplot expects a pandas frame
- 
-    g = sns.pairplot(pdf, corner=True, plot_kws={"alpha": 0.6, "s": 15})
+    
+    if "dataset" in pdf.columns:
+        palette = {sorted(pdf["dataset"].unique())[i]: ["steelblue", "darkorange", "seagreen", "crimson"][i] for i in range(len(pdf["dataset"].unique()))}
+        g = sns.pairplot(pdf, corner=True, plot_kws={"alpha": 0.6, "s": 15}, hue="dataset", palette=palette)
+    else:
+        g = sns.pairplot(pdf, corner=True, plot_kws={"alpha": 0.6, "s": 15})
+    
     g.fig.subplots_adjust(top=0.94)
     g.fig.suptitle("Pairwise relationships (target + features)", y=0.995, fontsize=14)
     return g.fig
@@ -411,6 +583,8 @@ def plot_residuals_vs_features(df: pl.DataFrame, target: str, features: list[str
     model = LinearRegression().fit(X, y)
     preds = model.predict(X)
     residuals = y - preds
+    
+    colors = ["steelblue", "darkorange", "seagreen", "crimson"]
  
     n_extra = len(features)
     ncols = 3
@@ -420,7 +594,19 @@ def plot_residuals_vs_features(df: pl.DataFrame, target: str, features: list[str
     axes = np.array(axes).reshape(-1)
  
     # residuals vs fitted values
-    sns.scatterplot(x=preds, y=residuals, ax=axes[0], alpha=0.6, s=20)
+    if "dataset" in df.columns:
+        datasets = df["dataset"].unique().to_list()
+        for i, dataset in enumerate(sorted(datasets)):
+            dataset_df = df.filter(pl.col("dataset") == dataset)
+            X_dataset = dataset_df.select(features).to_numpy()
+            y_dataset = dataset_df[target].to_numpy()
+            preds_dataset = model.predict(X_dataset)
+            residuals_dataset = y_dataset - preds_dataset
+            axes[0].scatter(preds_dataset, residuals_dataset, alpha=0.6, s=20, color=colors[i % len(colors)], label=dataset)
+        axes[0].legend()
+    else:
+        axes[0].scatter(preds, residuals, alpha=0.6, s=20, color="steelblue")
+    
     axes[0].axhline(0, color="red", linestyle="--")
     axes[0].set_title(f"Residuals vs fitted (R²={model.score(X, y):.2f})")
     axes[0].set_xlabel("fitted values")
@@ -428,8 +614,21 @@ def plot_residuals_vs_features(df: pl.DataFrame, target: str, features: list[str
  
     # residuals vs each feature
     for i, feat in enumerate(features, start=1):
-        x = df[feat].to_numpy()
-        sns.scatterplot(x=x, y=residuals, ax=axes[i], alpha=0.6, s=20, color="darkorange")
+        if "dataset" in df.columns:
+            datasets = df["dataset"].unique().to_list()
+            for j, dataset in enumerate(sorted(datasets)):
+                dataset_df = df.filter(pl.col("dataset") == dataset)
+                x = dataset_df[feat].to_numpy()
+                y_dataset = dataset_df[target].to_numpy()
+                X_dataset = dataset_df.select(features).to_numpy()
+                preds_dataset = model.predict(X_dataset)
+                residuals_dataset = y_dataset - preds_dataset
+                axes[i].scatter(x, residuals_dataset, alpha=0.6, s=20, color=colors[j % len(colors)], label=dataset)
+            axes[i].legend()
+        else:
+            x = df[feat].to_numpy()
+            axes[i].scatter(x, residuals, alpha=0.6, s=20, color="darkorange")
+        
         axes[i].axhline(0, color="red", linestyle="--")
         axes[i].set_title(f"Residuals vs {feat}")
         axes[i].set_xlabel(feat)
@@ -445,7 +644,22 @@ def plot_residuals_vs_features(df: pl.DataFrame, target: str, features: list[str
 
 
 if __name__ == "__main__":
-    df = pl.read_csv(CSV_PATH).drop_nans()
+    # Load all datasets and combine them
+    dfs = []
+    for csv_path in CSV_PATHS:
+        df_temp = pl.read_csv(csv_path)
+        # Extract dataset name from filename (e.g., "merged_results_linköping.csv" -> "linköping")
+        dataset_name = csv_path.replace("merged_results_", "").replace(".csv", "")
+        df_temp = df_temp.with_columns(pl.lit(dataset_name).alias("dataset"))
+        # Cast all numeric columns to Float64 to ensure compatibility when concatenating
+        df_temp = df_temp.with_columns([
+            pl.col(col).cast(pl.Float64) if df_temp[col].dtype in [pl.Int64, pl.Int32, pl.Int16, pl.Int8, pl.Float32, pl.Float64] else pl.col(col)
+            for col in df_temp.columns
+        ])
+        dfs.append(df_temp)
+    
+    # Combine all datasets
+    df = pl.concat(dfs).drop_nans()
     linear_regression(df, FEATURE_NAMES, RESPONSE_NAME, EXPORT_TXT_RESULTS, NORMALISE_FEATURES)
 
     plot_target_distribution(df, RESPONSE_NAME)
