@@ -14,24 +14,24 @@ import modules.weather_data as weather_data
 
 # PARAMETERS
 #provider = "otraf"
-terminal_coordinates = [(15.6218912408347,58.4177694632727), (15.6224848634713,58.4180357142838), (15.6250694051049,58.416677334774), (15.6248715308927,58.4162404738934)] # Linköping Central coordinates
+#terminal_coordinates = [(15.6218912408347,58.4177694632727), (15.6224848634713,58.4180357142838), (15.6250694051049,58.416677334774), (15.6248715308927,58.4162404738934)] # Linköping Central coordinates
 # Note: if a terminal has several operators, add 1 line in the CSV per operator, with the same terminal name (only the coordinates for the first row will be used)
 terminals_csv = "terminal_coords.csv"
 import_method = "online" # "online" for download from KoDa or "local" if files are already in the tempdata folder
 delete_tempdata = True # Whether to delete all GTFS data from the tempdata folder after the operation is completed.
 # Enable/disable the different modules here
-mod_koda_import = False
-mod_uncertainty = False
-mod_weatherfactors = False
-mod_otherfactors = False
-mod_process_results = True # Independent module, takes the .txt results and processes them rather than adding something in the txt files
+mod_koda_import = True
+mod_uncertainty = True
+mod_weatherfactors = True
+mod_otherfactors = True
+mod_process_results = False # Independent module, takes the .txt results and processes them rather than adding something in the txt files
 year = "2024"
 months = ["01", "07"]
 days = ["01", "06", "11", "16", "21", "26"]
 hours = [7, 16]
 
-results_folder_path = "output/results/A1 huddinge"
-results_csv_path = "output/merged_results_huddinge.csv"
+results_folder_path = "output/results/A1 västerås"
+results_csv_path = "output/merged_results_västerås.csv"
 
 
 # Whole day import

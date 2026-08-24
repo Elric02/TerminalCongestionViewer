@@ -264,10 +264,10 @@ def plot_kfold_predictions_multi_dataset(folds: list[dict]) -> plt.Figure:
         ax.set_title(f"{dataset} (Mean R²={mean_r2:.3f})")
         ax.set_xlabel("Desired value")
         ax.set_ylabel("Guessed value")
-        ax.legend(fontsize=8)
+        #ax.legend(fontsize=8)
     
     fig.tight_layout(rect=[0, 0, 1, 0.98])
-    fig.suptitle("Actual vs predicted per CV fold by dataset", fontsize=14)
+    fig.suptitle("Actual vs predicted for all CV folds per dataset (each terminal is a different dataset)", fontsize=14)
     return fig
 
 
@@ -451,31 +451,59 @@ def plot_target_distribution(df: pl.DataFrame, target: str):
 # --------------------------------------------------------------------------- #
 def plot_feature_distributions(df: pl.DataFrame, features: list[str]):
     """Grid of histograms, one per feature, to check ranges/skew before modeling."""
-    n = len(features)
-    ncols = 3
-    nrows = math.ceil(n / ncols)
- 
-    fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 4 * nrows))
-    axes = np.array(axes).reshape(-1)
-    
     colors = ["seagreen", "steelblue", "darkorange", "crimson"]
- 
-    for i, feat in enumerate(features):
-        if "dataset" in df.columns:
-            datasets = df["dataset"].unique().to_list()
-            for j, dataset in enumerate(sorted(datasets)):
+
+    if "dataset" in df.columns:
+        datasets = sorted(df["dataset"].unique().to_list())
+        n_datasets = len(datasets)
+        n_features = len(features)
+        fig, axes = plt.subplots(
+            n_datasets,
+            n_features,
+            figsize=(5 * n_features, 4 * n_datasets),
+            squeeze=False,
+        )
+
+        for column, feat in enumerate(features):
+            all_values = df[feat].drop_nulls().to_numpy()
+            all_values = all_values[np.isfinite(all_values)]
+            bin_edges = np.histogram_bin_edges(all_values, bins="auto")
+            x_min = float(np.min(all_values))
+            x_max = float(np.max(all_values))
+            if x_min == x_max:
+                x_min -= 0.5
+                x_max += 0.5
+
+            for row, dataset in enumerate(datasets):
                 dataset_df = df.filter(pl.col("dataset") == dataset)
                 values = dataset_df[feat].to_numpy()
-                sns.histplot(values, kde=True, ax=axes[i], color=colors[j % len(colors)], edgecolor="white", alpha=0.6, label=dataset)
-            axes[i].legend()
-        else:
+                sns.histplot(
+                    values,
+                    bins=bin_edges,
+                    kde=False,
+                    ax=axes[row, column],
+                    color=colors[row % len(colors)],
+                    edgecolor="white",
+                    alpha=0.6,
+                )
+                axes[row, column].set_title(f"{dataset}: {feat}")
+                axes[row, column].set_xlim(x_min, x_max)
+    else:
+        n = len(features)
+        ncols = 3
+        nrows = math.ceil(n / ncols)
+
+        fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 4 * nrows))
+        axes = np.array(axes).reshape(-1)
+
+        for i, feat in enumerate(features):
             values = df[feat].to_numpy()
             sns.histplot(values, kde=True, ax=axes[i], color="seagreen", edgecolor="white")
-        axes[i].set_title(feat)
- 
-    for j in range(n, len(axes)):
-        axes[j].axis("off")
- 
+            axes[i].set_title(feat)
+
+        for j in range(n, len(axes)):
+            axes[j].axis("off")
+
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     fig.suptitle("Feature distributions", y=0.995, fontsize=14)
     return fig
@@ -520,7 +548,16 @@ def plot_feature_vs_target_scatter(df: pl.DataFrame, target: str, features: list
                 dataset_df = df.filter(pl.col("dataset") == dataset)
                 x = dataset_df[feat].to_numpy()
                 y = dataset_df[target].to_numpy()
-                axes[i].scatter(x, y, alpha=0.6, s=20, color=colors[j % len(colors)], label=dataset)
+                color = colors[j % len(colors)]
+                axes[i].scatter(x, y, alpha=0.6, s=20, color=color, label=dataset)
+                if len(x) >= 2:
+                    if np.ptp(x) == 0:
+                        line_x = np.array([x[0], x[0]], dtype=float)
+                        line_y = np.array([np.mean(y), np.mean(y)], dtype=float)
+                    else:
+                        line_x = np.array([np.min(x), np.max(x)], dtype=float)
+                        line_y = np.polyval(np.polyfit(x, y, 1), line_x)
+                    axes[i].plot(line_x, line_y, color=color, linewidth=2)
             axes[i].legend()
             # Calculate correlation on full data
             x_full = df[feat].to_numpy()
@@ -638,7 +675,7 @@ def plot_residuals_vs_features(df: pl.DataFrame, target: str, features: list[str
         axes[j].axis("off")
  
     fig.tight_layout(rect=[0, 0, 1, 0.96])
-    fig.suptitle("Residual diagnostics (linear model)", y=0.995, fontsize=14)
+    fig.suptitle("Residual diagnostics (linear model) (all terminals together as 1 dataset)", y=0.995, fontsize=14)
     return fig
 
 
@@ -662,10 +699,10 @@ if __name__ == "__main__":
     df = pl.concat(dfs).drop_nans()
     linear_regression(df, FEATURE_NAMES, RESPONSE_NAME, EXPORT_TXT_RESULTS, NORMALISE_FEATURES)
 
-    plot_target_distribution(df, RESPONSE_NAME)
-    plot_feature_distributions(df, FEATURE_NAMES)
+    #plot_target_distribution(df, RESPONSE_NAME)
+    #plot_feature_distributions(df, FEATURE_NAMES)
     #plot_correlation_heatmap(df, RESPONSE_NAME, FEATURE_NAMES)
-    plot_feature_vs_target_scatter(df, RESPONSE_NAME, FEATURE_NAMES)
+    #plot_feature_vs_target_scatter(df, RESPONSE_NAME, FEATURE_NAMES)
     #plot_pairwise_scatter_matrix(df, RESPONSE_NAME, FEATURE_NAMES)
     plot_residuals_vs_features(df, RESPONSE_NAME, FEATURE_NAMES)
 
