@@ -3,7 +3,6 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-import ast
 import re
 # Local libs
 import modules.gtfs_import as gtfs_import
@@ -20,18 +19,19 @@ terminals_csv = "terminal_coords.csv"
 import_method = "online" # "online" for download from KoDa or "local" if files are already in the tempdata folder
 delete_tempdata = True # Whether to delete all GTFS data from the tempdata folder after the operation is completed.
 # Enable/disable the different modules here
-mod_koda_import = True
-mod_uncertainty = True
-mod_weatherfactors = True
-mod_otherfactors = True
-mod_process_results = False # Independent module, takes the .txt results and processes them rather than adding something in the txt files
+mod_koda_import = False
+mod_uncertainty = False
+mod_weatherfactors = False
+mod_otherfactors = False
+mod_process_results = True # Independent module, takes the .txt results and processes them rather than adding something in the txt files
 year = "2024"
 months = ["01", "07"]
 days = ["01", "06", "11", "16", "21", "26"]
 hours = [7, 16]
 
-results_folder_path = "output/results/A1 västerås"
-results_csv_path = "output/merged_results_västerås.csv"
+# Only used if mod_process_results is True
+results_folder_path = "output/results/A1 västerås ul"
+results_csv_path = "output/merged_results_västerås_ul.csv"
 
 
 # Whole day import
@@ -56,7 +56,9 @@ def process_terminal(terminal_coordinates_df, terminal_name, date, time_ranges):
     # Get a list of all the (unique) operators for that terminal
     providers = filtered_terminal_coordinates_df.select(pl.col('provider')).to_series().to_list()
     uncertainty_results = {}
-    export_path = "output/vehiclepositions/vehiclepositions_"+("_".join(providers))+"_"+date+".csv"
+    # Build the name of the CSV file here instead of in the gtfs_import module
+    export_name = "vehiclepositions_terminal_"+terminal_name+"_"+("_".join(providers))+"_"+date+"_"+"-".join(str(item) for sublist in time_ranges for subsublist in sublist for item in subsublist)+".csv"
+    export_path = "output/vehiclepositions/"+export_name
     if mod_koda_import:
         # Get the coordinates of the terminal to process
         coords = []
@@ -64,9 +66,6 @@ def process_terminal(terminal_coordinates_df, terminal_name, date, time_ranges):
             if filtered_terminal_coordinates_df.select(pl.col('lon'+str(col))).to_series().to_list()[0] is not None:
                 coords.append((filtered_terminal_coordinates_df.select(pl.col('lon'+str(col))).to_series().to_list()[0], filtered_terminal_coordinates_df.select(pl.col('lat'+str(col))).to_series().to_list()[0]))
         print("Coordinates of the terminal:", coords)
-        # Build the name of the CSV file here instead of in the gtfs_import module
-        export_name = "vehiclepositions_terminal_"+terminal_name+"_"+("_".join(providers))+"_"+date+"_"+"-".join(str(item) for sublist in time_ranges for subsublist in sublist for item in subsublist)+".csv"
-        export_path = "output/vehiclepositions/"+export_name
         total_df_list = []
         # Append to total_df_list the data for each operator
         for provider in providers:

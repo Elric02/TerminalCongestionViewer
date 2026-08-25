@@ -34,7 +34,7 @@ FEATURE_NAMES = [
     "weather.Lufttryck reducerat havsytans nivå.value",
 ]
 RESPONSE_NAME = "imprecision.imprecision_val"
-CSV_PATHS = ["merged_results_linköping.csv", "merged_results_norrköping.csv", "merged_results_bålsta.csv", "merged_results_huddinge.csv"]
+CSV_PATHS = ["merged_results_västerås_vastmanland.csv", "merged_results_västerås_ul.csv"]
 EXPORT_TXT_RESULTS = False
 NORMALISE_FEATURES = False
 
@@ -699,10 +699,10 @@ if __name__ == "__main__":
     df = pl.concat(dfs).drop_nans()
     linear_regression(df, FEATURE_NAMES, RESPONSE_NAME, EXPORT_TXT_RESULTS, NORMALISE_FEATURES)
 
-    #plot_target_distribution(df, RESPONSE_NAME)
+    plot_target_distribution(df, RESPONSE_NAME)
     #plot_feature_distributions(df, FEATURE_NAMES)
     #plot_correlation_heatmap(df, RESPONSE_NAME, FEATURE_NAMES)
-    #plot_feature_vs_target_scatter(df, RESPONSE_NAME, FEATURE_NAMES)
+    plot_feature_vs_target_scatter(df, RESPONSE_NAME, FEATURE_NAMES)
     #plot_pairwise_scatter_matrix(df, RESPONSE_NAME, FEATURE_NAMES)
     plot_residuals_vs_features(df, RESPONSE_NAME, FEATURE_NAMES)
 
