@@ -6,12 +6,16 @@ from pyproj import Geod
 
 # Radius (in meters) around the coordinates of a berth to consider a bus as stopped at that berth. For example: 6
 DIST_THRESHOLD = 6
-# Input here how many times a row a bus must be at speed=0 to be considered stopped. For example: 3
-NB_CONSECUTIVE = 5
-# What is the start of all stop_id's for the stops at the terminal? For example: "90220050000500" (all stops at Linköping Centrum start with this sequence, and no other stop does)
-STOP_ID_PATTERN = "90220050000500" # Linköping
+# Same but applies for the expected berth(s) (i.e. the one in the static data for the trip the bus is on at the moment it stops, and when it departs again). For example: 9
+EXPECTED_BERTH_DIST_THRESHOLD = 9
+# Input here how many times a row a bus must be at speed<max_speed to be considered stopped. For example: 6
+NB_CONSECUTIVE = 6
+# Input here how much time (in seconds) can pass between two consecutive rows for them to be considered part of the same trajectory. For example: 12
+GAP_SECONDS = 12
 # Maximum speed (in km/h) for a bus to be considered as stopped. For example: 1 km/h
 MAX_SPEED = 1
+# What is the start of all stop_id's for the stops at the terminal? For example: "90220050000500" (all stops at Linköping Centrum start with this sequence, and no other stop does)
+STOP_ID_PATTERN = "90220050000500" # Linköping
 
 # Input here the special zones. The zone has to be defined by at least 3 geographical points (its ends), and if a bus stopping inside should be considered as a regular stop or not.
 SPECIAL_ZONES = [
@@ -20,7 +24,7 @@ SPECIAL_ZONES = [
      'coordinates': [(15.62236, 58.41773), (15.62214, 58.41761), (15.62192, 58.41773), (15.62214, 58.41785)]}
 ]
 
-OUTPUT_CSV = "trajectory_stops_lkpg_220322.csv"
+OUTPUT_CSV = "output/trajectory_stops_lkpg_220322_v3.csv"
 
 
 
@@ -44,7 +48,7 @@ def check_special_zones(longitude, latitude, zones):
 
 # Function that will add remarks to the stop based on some criteria
 def check_special_stopping_conditions(longitude, latitude, bearing, timestart, entire_hour_stopped_df, crossings_df):
-    remarks = {}
+    remarks = ""
     # If there's any vehicle stopped in front of the stopped vehicle, and what that vehicle is (thought of) stopped for
     # Note: this feature seems to miss some occurrences
     geod = Geod(ellps="WGS84")
@@ -64,12 +68,12 @@ def check_special_stopping_conditions(longitude, latitude, bearing, timestart, e
             if not any(x['vehicle'] == vehicle['vehicle.id'] for x in is_inside):
                 is_inside.append({'vehicle': vehicle['vehicle.id']})
     if len(is_inside) > 0:
-        remarks['vehicle_infront'] = is_inside
+        remarks += f"Vehicle in front: {', '.join([v['vehicle'] for v in is_inside])}; "
     # If the vehicle is stopped at a pedestrian crossing
     for crossing in crossings_df.iter_rows(named=True):
         _, _, distance = geod.inv(longitude, latitude, crossing['longitude'], crossing['latitude'])
         if distance <= 6:
-            remarks['at_crossing'] = crossing['name']
+            remarks += f"At crossing: {crossing['name']}; "
     return remarks
 
 
@@ -108,9 +112,9 @@ def trip_details(row, trips, routes, stops, stop_times, stop_id_pattern):
 
 
 def detect_trajectory_stops(entire_hour_df, trips=None, routes=None, stops=None,
-                            stop_times=None, gap_seconds=30, nb_consecutive=3,
+                            stop_times=None, gap_seconds=GAP_SECONDS, nb_consecutive=NB_CONSECUTIVE,
                             stop_id_pattern=STOP_ID_PATTERN, special_zones=None,
-                            crossings_df=None, berth_df=None, dist_threshold=DIST_THRESHOLD):
+                            crossings_df=None, berth_df=None, dist_threshold=DIST_THRESHOLD, expected_berth_dist_threshold=EXPECTED_BERTH_DIST_THRESHOLD):
     """Split positions into trajectories and return one descriptive row per stop."""
     required = {'vehicle.id', 'timestamp', 'speed'}
     missing = required - set(entire_hour_df.columns)
@@ -153,7 +157,7 @@ def detect_trajectory_stops(entire_hour_df, trips=None, routes=None, stops=None,
             ).filter(pl.col('is_zero_speed'))
             .partition_by('zero_group', as_dict=False, maintain_order=True)
         ]
-        qualifying_stops = [group.drop('zero_group') for group in stop_groups if group.height >= nb_consecutive]
+        qualifying_stops = [group.drop('zero_group') for group in stop_groups if group.height > nb_consecutive]
         trajectory_start = trajectory.row(0, named=True)['timestamp']
         trajectory_end = trajectory.row(-1, named=True)['timestamp']
 
@@ -170,19 +174,37 @@ def detect_trajectory_stops(entire_hour_df, trips=None, routes=None, stops=None,
             end = stop.row(-1, named=True)
             start_route, start_direction, start_berth = trip_details(start, trips, routes, stops, stop_times, stop_id_pattern)
             end_route, end_direction, end_berth = trip_details(end, trips, routes, stops, stop_times, stop_id_pattern)
-            detected_berth = -1
-            if {'longitude', 'latitude'}.issubset(stop.columns):
-                for berth in berth_df.iter_rows(named=True):
-                    _, _, distance = geod.inv(start['longitude'], start['latitude'], berth['longitude'], berth['latitude'])
+            # First check if the expected (according to static data) end berth is within the distance threshold, then check the expected start berth, 
+            # and finally check all berths if neither of those are within the threshold.
+            # We start with the end berth because it is most likely the bus is stopped at the next berth it is supposed to depart from.
+            detected_berth_found = False
+            if end_berth != -1:
+                end_berth_row = berth_df.filter(pl.col('berth') == end_berth).row(0, named=True)
+                _, _, distance = geod.inv(start['longitude'], start['latitude'], end_berth_row['longitude'], end_berth_row['latitude'])
+                if distance <= expected_berth_dist_threshold:
+                    detected_berth = end_berth_row['berth']
+                    detected_berth_found = True
+            if start_berth != -1 and not detected_berth_found:
+                start_berth_row = berth_df.filter(pl.col('berth') == start_berth).row(0, named=True)
+                _, _, distance = geod.inv(start['longitude'], start['latitude'], start_berth_row['longitude'], start_berth_row['latitude'])
+                if distance <= expected_berth_dist_threshold:
+                    detected_berth = start_berth_row['berth']
+                    detected_berth_found = True
+            if not detected_berth_found:
+                for berth_row in berth_df.iter_rows(named=True):
+                    _, _, distance = geod.inv(start['longitude'], start['latitude'], berth_row['longitude'], berth_row['latitude'])
                     if distance <= dist_threshold:
-                        detected_berth = berth['berth']
+                        detected_berth = berth_row['berth']
+                        detected_berth_found = True
                         break
-            remarks = {}
+            if not detected_berth_found:
+                detected_berth = -1
+            remarks = ""
             if special_zones is not None and {'longitude', 'latitude'}.issubset(start):
                 zone = check_special_zones(start['longitude'], start['latitude'], special_zones)
                 if zone:
-                    remarks['zone'] = zone
-            remarks.update(check_special_stopping_conditions(start['longitude'], start['latitude'], start.get('bearing', 0), start['timestamp'], stop, crossings_df))
+                    remarks += f"Zone: {zone}; "
+            remarks += "; " + check_special_stopping_conditions(start['longitude'], start['latitude'], start.get('bearing', 0), start['timestamp'], stop, crossings_df)
             rows.append({
                 'trajectory_id': trajectory_id, 'vehicle': start['vehicle.id'],
                 'trajectory_start_timestamp': trajectory_start, 'trajectory_end_timestamp': trajectory_end,
@@ -200,10 +222,10 @@ def detect_trajectory_stops(entire_hour_df, trips=None, routes=None, stops=None,
 
 
 if __name__ == "__main__":
-    trips = pl.read_csv('data/lkpg/trips.txt')
-    routes = pl.read_csv('data/lkpg/routes.txt')
-    stops = pl.read_csv('data/lkpg/stops.txt')
-    stop_times = pl.read_csv('data/lkpg/stop_times.txt')
+    trips = pl.read_csv('data/lkpg/trips.txt', schema_overrides={'route_id': pl.String, 'trip_id': pl.String, 'shape_id': pl.String})
+    routes = pl.read_csv('data/lkpg/routes.txt', schema_overrides={'route_id': pl.String, 'agency_id': pl.String, 'route_short_name': pl.String})
+    stops = pl.read_csv('data/lkpg/stops.txt', schema_overrides={'stop_id': pl.String})
+    stop_times = pl.read_csv('data/lkpg/stop_times.txt', schema_overrides={'trip_id': pl.String, 'stop_id': pl.String})
 
     entire_hour_df = pl.read_csv('data/lkpg/vehiclepositions_terminal_linköping_klt_otraf_2022-03-22_071600to083850.csv', schema_overrides={'vehicle.id': pl.String, 'trip_id': pl.String, 'route_id': pl.String})
     trajectory_stops_df = detect_trajectory_stops(
@@ -212,11 +234,12 @@ if __name__ == "__main__":
         routes=routes,
         stops=stops,
         stop_times=stop_times,
-        gap_seconds=30,
+        gap_seconds=GAP_SECONDS,
         nb_consecutive=NB_CONSECUTIVE,
         stop_id_pattern=STOP_ID_PATTERN,
         special_zones=SPECIAL_ZONES,
         dist_threshold=DIST_THRESHOLD,
+        expected_berth_dist_threshold=EXPECTED_BERTH_DIST_THRESHOLD
     )
-    trajectory_stops_df.to_csv(OUTPUT_CSV, index=False)
     print(trajectory_stops_df)
+    trajectory_stops_df.write_csv(OUTPUT_CSV)
