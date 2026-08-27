@@ -255,3 +255,89 @@ def koda_import_timeframe(provider, date, time_ranges, import_method="online", r
 
     return total_df
 
+
+def koda_import_static(provider, date, import_method="online",
+                       staticdata_path="tempdata/static/static_unzipped",
+                       delete_tempdata=True):
+    """Import all GTFS static data for a provider and date from KoDa.
+
+    :param provider: The desired provider code (e.g. otraf, sl, ul...).
+    :type provider: str
+    :param date: The desired date in format "YYYY-MM-DD".
+    :type date: str
+    :param import_method: Where to get the data ("online" or "local").
+    :type import_method: str
+    :param staticdata_path: Folder containing the extracted static GTFS files
+        when ``import_method`` is "local".
+    :type staticdata_path: str
+    :param delete_tempdata: Whether to remove downloaded static data after it
+        has been imported (only if ``import_method`` is "online").
+    :type delete_tempdata: bool
+    :return: A dictionary mapping each GTFS filename stem to a Polars DataFrame.
+    :rtype: dict[str, polars.DataFrame]
+    """
+    if import_method not in {"online", "local"}:
+        raise ValueError("import_method must be either 'online' or 'local'")
+
+    unzip_path = staticdata_path
+    if import_method == "online":
+        key_text_file = "koda_api_key.txt"
+        try:
+            with open(key_text_file, "r") as key_file:
+                api_key = key_file.read().strip()
+        except FileNotFoundError as error:
+            raise FileNotFoundError(
+                f"KoDa API key not found: create {key_text_file} in the project directory."
+            ) from error
+
+        static_url = (
+            f"https://api.koda.trafiklab.se/KoDa/api/v2/gtfs-static/"
+            f"{provider}?date={date}&key={api_key}"
+        )
+        import_path = os.path.join("tempdata", "static")
+        os.makedirs(import_path, exist_ok=True)
+        zip_name = f"GTFS-{provider.upper()}-{date}.zip"
+        zip_path = os.path.join(import_path, zip_name)
+
+        while True:
+            print(datetime.now().strftime("%H:%M:%S"), "Requesting data from", static_url)
+            response = os.popen(f'curl -s -w %{{http_code}} -I "{static_url}"').read()
+            if "200" in response:
+                break
+            if "202" not in response:
+                raise RuntimeError("Unknown response from server: " + response)
+            print("Data is being prepared on the server. Waiting.")
+            time.sleep(60)
+
+        os.system(f'curl -s -o "{zip_path}" "{static_url}"')
+        unzip_path = os.path.join(import_path, "static_unzipped")
+        os.makedirs(unzip_path, exist_ok=True)
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            zip_ref.extractall(unzip_path)
+
+    static_files = {}
+    for root, _, filenames in os.walk(unzip_path):
+        for filename in filenames:
+            if filename.endswith(".txt"):
+                file_path = os.path.join(root, filename)
+                static_files[os.path.splitext(filename)[0]] = pl.read_csv(file_path, schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8, 'route_short_name': pl.Utf8})
+
+    if not static_files:
+        raise FileNotFoundError(f"No GTFS static .txt files found in {unzip_path}")
+
+    if delete_tempdata and import_method == "online":
+        def remove_readonly(func, path, _):
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        for item in os.listdir(os.path.join("tempdata", "static")):
+            item_path = os.path.join(os.path.join("tempdata", "static"), item)
+            # Skip .gitignore
+            if item == ".gitignore": continue
+            # Remove directories
+            if os.path.isdir(item_path):
+                shutil.rmtree(item_path, onexc=remove_readonly)
+            # Remove files
+            else:
+                os.remove(item_path)
+
+    return static_files
