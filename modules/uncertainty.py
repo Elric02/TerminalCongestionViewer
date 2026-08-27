@@ -153,26 +153,6 @@ def comparison(df, comparison_type, terminal, date, time_range, min_points_in_tr
     results = []
     routedirs_count = [0, 0, 0, 0]
 
-    if comparison_type == "hours":
-        for hour in range(time_range[0], time_range[1]):
-            start = datetime.timestamp(datetime.strptime(f"{date} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S"))
-            end = datetime.timestamp(datetime.strptime(f"{date} {hour:02d}:59:59", "%Y-%m-%d %H:%M:%S"))
-            df_hour = df.filter(
-                pl.col("timestamp")
-                .is_between(
-                    start,
-                    end,
-                    closed="both",
-                )
-            )
-            print(f"{hour:02d}:00–{hour+1:02d}:00 => {len(df_hour)} rows")
-
-            _, trip_coords_list, _, _ = format_data(df_hour, min_points_in_traj, verbose)
-            sspd = tdist.pdist(trip_coords_list, metric="sspd", verbose=verbose)
-            dfd = tdist.pdist(trip_coords_list, metric="discret_frechet", verbose=verbose)
-            results.append(quick_analysis(sspd, measure="sspd", name=f"{date} {hour:02d}h"))
-            results.append(quick_analysis(dfd, measure="dfd", name=f"{date} {hour:02d}h"))
-
     if comparison_type == "routes":
         # Remove values with no route or the special -2 sentinel
         df = df.filter((pl.col("route_short_name") != "-1") & (pl.col("route_short_name") != "-2"))
@@ -227,36 +207,6 @@ def comparison(df, comparison_type, terminal, date, time_range, min_points_in_tr
         export_to_gpkg(df, df_clusters, terminal, date, export_intermediate_to_csv, verbose, paths_gpkg)
         print("Route+dirs... kept:", routedirs_count[0], ", discarded because of multiple clusters:", routedirs_count[1], ", discarded because of too few trajs in main cluster:", routedirs_count[2], ", discarded because too few trajectories in general:", routedirs_count[3])
         
-        
-    if comparison_type == "clustered":
-        trip_ids, trip_coords_list, _, _ = format_data(df, min_points_in_traj, verbose)
-        if len(trip_ids) < 2:
-            print(f"Not enough trajectories to cluster and calculate distance measures.")
-            results.append({"measure": "None", "name": f"{date} clustered", "nb_pairs": 0, "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
-        else:
-            labels, _, _ = cluster_trips_dbscan(trip_coords_list, verbose=verbose)
-            # Export cluster assignments for each trip
-            try:
-                df_clusters = pl.DataFrame({"trip_id": trip_ids, "cluster": labels})
-                df_clusters.write_csv(f'output/cluster_assignments_{terminal}_{date}.csv')
-            except Exception as e:
-                print(f"Failed to write cluster assignments CSV: {e}")
-            unique_labels, counts = np.unique(labels, return_counts=True)
-            for label, count in zip(unique_labels, counts):
-                print(f"Cluster {label}: {count} trajectories")
-                if label == -1:
-                    print(f"Noise trajectories (label=-1): {count}")
-                    continue
-                if count < 2:
-                    print(f"Cluster {label} has only {count} trajectory; skipping distance calculation.")
-                    continue
-
-                cluster_trajs = [trip_coords_list[i] for i in range(len(trip_coords_list)) if labels[i] == label]
-                #print(cluster_trajs)
-                sspd = tdist.pdist(cluster_trajs, metric="sspd", verbose=verbose)
-                dfd = tdist.pdist(cluster_trajs, metric="discret_frechet", verbose=verbose)
-                results.append(quick_analysis(sspd, measure="sspd", name=f"{date} cluster_{label}_size_{count}"))
-                results.append(quick_analysis(dfd, measure="dfd", name=f"{date} cluster_{label}_size_{count}"))
 
     results_df = pl.DataFrame(results)
     return results_df, routedirs_count
