@@ -28,6 +28,7 @@ year = "2024"
 months = ["01", "07"]
 days = ["01", "06", "11", "16", "21", "26"]
 hours = [7, 16]
+comparison_group_by = "berths"
 
 # Only used if mod_process_results is True
 results_folder_path = "output/results/A1 västerås ul"
@@ -73,7 +74,10 @@ def process_terminal(terminal_coordinates_df, terminal_name, date, time_ranges):
         total_df = pl.concat(total_df_list, how="diagonal_relaxed")
         total_df.write_csv(export_path)
     if mod_uncertainty:
-        imprecision_pooled_mean, imprecision_pooled_std, imprecision_trajs = uncertainty.get_imprecision(terminal_name, date, providers, time_range=[time_ranges[0][0][0], time_ranges[-1][1][0]+1], min_trips_for_clustering=3, vehiclepositions_path=export_path, paths_gpkg=False, verbose=False, dbscan_global_min_samples=3, dbscan_global_eps_percentile=20)
+        imprecision_pooled_mean, imprecision_pooled_std, imprecision_trajs = uncertainty.get_imprecision(terminal_name, date, providers, time_range=[time_ranges[0][0][0], time_ranges[-1][1][0]+1], min_trips_for_clustering=3, 
+                                                                                                         vehiclepositions_path=export_path, paths_gpkg=False, verbose=False, dbscan_global_min_samples=3, dbscan_global_eps_percentile=20,
+                                                                                                         comparison_group_by=comparison_group_by
+                                                                                                        )
         uncertainty_results = uncertainty_results | {"imprecision": {"imprecision_val": imprecision_pooled_mean, "imprecision_std": imprecision_pooled_std, "imprecision_trajs": imprecision_trajs}}
     return uncertainty_results
 

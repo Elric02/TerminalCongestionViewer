@@ -147,13 +147,13 @@ def export_to_gpkg(df_vehiclepositions, df_clusters, terminal, date, export_inte
     print("GPKG export done! In QGIS: Layer -> Add Layer -> Add Vector Layer, then select the .gpkg file.")
 
 
-def comparison(df, comparison_type, terminal, date, time_range, min_points_in_traj, min_trips_for_clustering,
+def comparison(df, group_by, terminal, date, time_range, min_points_in_traj, min_trips_for_clustering,
                     discard_if_several_clusters, export_intermediate_to_csv, verbose,
                     dbscan_global_eps_percentile, dbscan_global_min_samples, paths_gpkg):
     results = []
     routedirs_count = [0, 0, 0, 0]
 
-    if comparison_type == "routes":
+    if group_by == "routes":
         # Remove values with no route or the special -2 sentinel
         df = df.filter((pl.col("route_short_name") != "-1") & (pl.col("route_short_name") != "-2"))
         route_values = df.select(pl.col("route_short_name")).unique().to_series().to_list()
@@ -207,6 +207,8 @@ def comparison(df, comparison_type, terminal, date, time_range, min_points_in_tr
         export_to_gpkg(df, df_clusters, terminal, date, export_intermediate_to_csv, verbose, paths_gpkg)
         print("Route+dirs... kept:", routedirs_count[0], ", discarded because of multiple clusters:", routedirs_count[1], ", discarded because of too few trajs in main cluster:", routedirs_count[2], ", discarded because too few trajectories in general:", routedirs_count[3])
         
+    if group_by == "berths":
+        print("TBD")
 
     results_df = pl.DataFrame(results)
     return results_df, routedirs_count
@@ -214,7 +216,7 @@ def comparison(df, comparison_type, terminal, date, time_range, min_points_in_tr
 
 def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in_traj=10, min_trips_for_clustering=5, vehiclepositions_path=None,
                     discard_if_several_clusters=False, export_intermediate_to_csv=False, export_final_to_csv=True, verbose=False,
-                    dbscan_global_eps_percentile=12, dbscan_global_min_samples=3, paths_gpkg=True):
+                    dbscan_global_eps_percentile=12, dbscan_global_min_samples=3, paths_gpkg=True, comparison_group_by="routes"):
     """Get the imprecision value(s) for the desired location and timeframe
 
     :param terminal: The desired terminal name
@@ -246,6 +248,8 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
     :type dbscan_global_min_samples: int
     :param paths_gpkg: Whether you also want a 2nd GPKG file with paths instead of points
     :type paths_gpkg: Boolean
+    :param comparison_group_by: For the distance computing, whethere to group by "routes" (including direction and cluster) or "berths"
+    :type comparison_group_by: str
     :return: Dict containing the imprecision results
     """
     data = get_data(terminal, providers, date, vehiclepositions_path=vehiclepositions_path)
@@ -260,8 +264,8 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
         )
     )
     print(f"Uncertainty module: restricted time from {time_range[0]:02d}:00:00 (timestamp {start}) to {(time_range[1]-1):02d}:59:59  (timestamp {end})")
-    # comparison_type is "hours", "routes" or "clustered"
-    results_df, routedirs_count = comparison(data, comparison_type="routes", terminal=terminal, date=date, time_range=time_range, min_points_in_traj=min_points_in_traj,
+    # group_by is "routes" or "berths"
+    results_df, routedirs_count = comparison(data, group_by=comparison_group_by, terminal=terminal, date=date, time_range=time_range, min_points_in_traj=min_points_in_traj,
                             min_trips_for_clustering=min_trips_for_clustering, discard_if_several_clusters=discard_if_several_clusters,
                             export_intermediate_to_csv=export_intermediate_to_csv, verbose=verbose, dbscan_global_eps_percentile=dbscan_global_eps_percentile,
                             dbscan_global_min_samples=dbscan_global_min_samples, paths_gpkg=paths_gpkg)
