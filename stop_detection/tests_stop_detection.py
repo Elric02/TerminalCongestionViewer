@@ -1,4 +1,5 @@
-import pandas as pd
+import math
+import polars as pl
 from shapely.geometry import Point, Polygon
 from pyproj import Geod
 
@@ -53,9 +54,11 @@ def check_special_stopping_conditions(longitude, latitude, bearing, timestart, e
     left_bearing, right_bearing = ((bearing - 20) % 360, (bearing + 20) % 360)
     base_left_lon, base_left_lat, _ = geod.fwd(longitude, latitude, left_bearing, 22)
     base_right_lon, base_right_lat, _ = geod.fwd(longitude, latitude, right_bearing, 22)
-    time_filtered_df = entire_hour_stopped_df[(entire_hour_stopped_df['timestamp'] >= timestart-5) & (entire_hour_stopped_df['timestamp'] <= timestart+5)]
+    time_filtered_df = entire_hour_stopped_df.filter(
+        pl.col('timestamp').is_between(timestart - 5, timestart + 5)
+    )
     is_inside = []
-    for _, vehicle in time_filtered_df.iterrows():
+    for vehicle in time_filtered_df.iter_rows(named=True):
         if Polygon([(tip_lon, tip_lat), (base_left_lon, base_left_lat), (base_right_lon, base_right_lat)]).contains(Point((vehicle['longitude'], vehicle['latitude']))):
             # Only append a vehicle's id once
             if not any(x['vehicle'] == vehicle['vehicle.id'] for x in is_inside):
@@ -63,11 +66,9 @@ def check_special_stopping_conditions(longitude, latitude, bearing, timestart, e
     if len(is_inside) > 0:
         remarks['vehicle_infront'] = is_inside
     # If the vehicle is stopped at a pedestrian crossing
-    is_at_crossing = False
-    for _, crossing in crossings_df.iterrows():
-        geod = Geod(ellps="WGS84") # Define the geodetic model
-        _, _, distance = geod.inv(longitude, latitude, crossing['longitude'], crossing['latitude']) # Compute geodesic distance
-        if distance <= 6: # True if distance is equal or less than 6 meters
+    for crossing in crossings_df.iter_rows(named=True):
+        _, _, distance = geod.inv(longitude, latitude, crossing['longitude'], crossing['latitude'])
+        if distance <= 6:
             remarks['at_crossing'] = crossing['name']
     return remarks
 
@@ -79,28 +80,31 @@ def trip_details(row, trips, routes, stops, stop_times, stop_id_pattern):
     planned_berth = -1
     trip_id = row.get('trip_id', None)
 
-    if pd.isna(trip_id) or trips is None:
-        return route if not pd.isna(route) else -1, direction if not pd.isna(direction) else -1, planned_berth
+    def is_missing(value):
+        return value is None or (isinstance(value, float) and math.isnan(value))
 
-    trip = trips.loc[trips['trip_id'].astype(str) == str(trip_id)]
-    if trip.empty:
-        return route if not pd.isna(route) else -1, direction if not pd.isna(direction) else -1, planned_berth
+    if is_missing(trip_id) or trips is None:
+        return route if not is_missing(route) else -1, direction if not is_missing(direction) else -1, planned_berth
 
-    trip = trip.iloc[0]
+    trip = trips.filter(pl.col('trip_id').cast(pl.String) == str(trip_id))
+    if trip.is_empty():
+        return route if not is_missing(route) else -1, direction if not is_missing(direction) else -1, planned_berth
+
+    trip = trip.row(0, named=True)
     route_id = trip.get('route_id')
-    if (pd.isna(route) or route == '') and routes is not None:
-        matching_routes = routes.loc[routes['route_id'] == route_id]
-        route = matching_routes.iloc[0]['route_short_name'] if not matching_routes.empty else -1
-    if pd.isna(direction):
+    if (is_missing(route) or route == '') and routes is not None:
+        matching_routes = routes.filter(pl.col('route_id') == route_id)
+        route = matching_routes.row(0, named=True)['route_short_name'] if not matching_routes.is_empty() else -1
+    if is_missing(direction):
         direction = trip.get('direction_id', -1)
 
-    trip_stops = stop_times.loc[stop_times['trip_id'].astype(str) == str(trip_id), 'stop_id']
+    trip_stops = stop_times.filter(pl.col('trip_id').cast(pl.String) == str(trip_id)).get_column('stop_id').to_list()
     terminal_stops = [stop for stop in trip_stops if str(stop).startswith(stop_id_pattern)]
-    if terminal_stops:
-        matching_stops = stops.loc[stops['stop_id'] == terminal_stops[0], 'platform_code']
-        if not matching_stops.empty:
-            planned_berth = matching_stops.iloc[0]
-    return route if not pd.isna(route) else -1, direction if not pd.isna(direction) else -1, planned_berth
+    if terminal_stops and stops is not None:
+        matching_stops = stops.filter(pl.col('stop_id') == terminal_stops[0])
+        if not matching_stops.is_empty():
+            planned_berth = matching_stops.row(0, named=True)['platform_code']
+    return route if not is_missing(route) else -1, direction if not is_missing(direction) else -1, planned_berth
 
 
 def detect_trajectory_stops(entire_hour_df, trips=None, routes=None, stops=None,
@@ -113,15 +117,25 @@ def detect_trajectory_stops(entire_hour_df, trips=None, routes=None, stops=None,
     if missing:
         raise ValueError(f'Missing required columns: {sorted(missing)}')
 
-    positions = entire_hour_df.copy()
-    positions = positions.sort_values(['vehicle.id', 'timestamp']).reset_index(drop=True)
-    positions['trajectory_id'] = positions['vehicle.id'].astype(str) + '-' + positions.groupby('vehicle.id')['timestamp'].transform(
-        lambda timestamps: timestamps.diff().fillna(0).ge(gap_seconds).cumsum().astype(str)
+    positions = (
+        entire_hour_df.sort(['vehicle.id', 'timestamp'])
+        .with_columns(
+            trajectory_break=pl.col('timestamp').diff().over('vehicle.id').fill_null(0).ge(gap_seconds)
+        )
+        .with_columns(
+            trajectory_id=(
+                pl.col('vehicle.id').cast(pl.String) + pl.lit('-') +
+                pl.col('trajectory_break').cum_sum().over('vehicle.id').cast(pl.String)
+            ),
+            is_zero_speed=pl.col('speed').lt(MAX_SPEED),
+        )
+        .drop('trajectory_break')
     )
-    positions['is_zero_speed'] = positions['speed'].lt(MAX_SPEED)
 
     if berth_df is None:
-        berth_df = pd.read_csv('data/lkpg/berths.csv')
+        berth_df = pl.read_csv('data/lkpg/berths.csv')
+    if crossings_df is None:
+        crossings_df = pl.read_csv('data/lkpg/pedestrian_crossings.csv')
     geod = Geod(ellps='WGS84')
     output_columns = [
         'trajectory_id', 'vehicle', 'trajectory_start_timestamp', 'trajectory_end_timestamp',
@@ -131,40 +145,43 @@ def detect_trajectory_stops(entire_hour_df, trips=None, routes=None, stops=None,
     ]
     rows = []
 
-    for trajectory_id, trajectory in positions.groupby('trajectory_id', sort=False):
-        trajectory = trajectory.reset_index(drop=True)
-        zero_group = trajectory['is_zero_speed'].ne(trajectory['is_zero_speed'].shift()).cumsum()
-        stop_groups = [group for _, group in trajectory[trajectory['is_zero_speed']].groupby(zero_group)]
-        qualifying_stops = [group for group in stop_groups if len(group) >= nb_consecutive]
-        trajectory_start = trajectory.iloc[0]['timestamp']
-        trajectory_end = trajectory.iloc[-1]['timestamp']
+    for trajectory in positions.partition_by('trajectory_id', as_dict=False, maintain_order=True):
+        trajectory_id = trajectory.row(0, named=True)['trajectory_id']
+        stop_groups = [
+            group for group in trajectory.with_columns(
+                zero_group=pl.col('is_zero_speed').ne(pl.col('is_zero_speed').shift()).fill_null(True).cum_sum()
+            ).filter(pl.col('is_zero_speed'))
+            .partition_by('zero_group', as_dict=False, maintain_order=True)
+        ]
+        qualifying_stops = [group.drop('zero_group') for group in stop_groups if group.height >= nb_consecutive]
+        trajectory_start = trajectory.row(0, named=True)['timestamp']
+        trajectory_end = trajectory.row(-1, named=True)['timestamp']
 
         if not qualifying_stops:
             rows.append({
-                'trajectory_id': trajectory_id, 'vehicle': trajectory.iloc[0]['vehicle.id'],
+                'trajectory_id': trajectory_id, 'vehicle': trajectory.row(0, named=True)['vehicle.id'],
                 'trajectory_start_timestamp': trajectory_start, 'trajectory_end_timestamp': trajectory_end,
                 'stop_number': -1, **{column: -1 for column in output_columns[5:]}
             })
             continue
 
         for stop_number, stop in enumerate(qualifying_stops):
-            start = stop.iloc[0]
-            end = stop.iloc[-1]
+            start = stop.row(0, named=True)
+            end = stop.row(-1, named=True)
             start_route, start_direction, start_berth = trip_details(start, trips, routes, stops, stop_times, stop_id_pattern)
             end_route, end_direction, end_berth = trip_details(end, trips, routes, stops, stop_times, stop_id_pattern)
             detected_berth = -1
             if {'longitude', 'latitude'}.issubset(stop.columns):
-                for _, berth in berth_df.iterrows():
+                for berth in berth_df.iter_rows(named=True):
                     _, _, distance = geod.inv(start['longitude'], start['latitude'], berth['longitude'], berth['latitude'])
                     if distance <= dist_threshold:
                         detected_berth = berth['berth']
                         break
             remarks = {}
-            if special_zones is not None and {'longitude', 'latitude'}.issubset(start.index):
+            if special_zones is not None and {'longitude', 'latitude'}.issubset(start):
                 zone = check_special_zones(start['longitude'], start['latitude'], special_zones)
                 if zone:
                     remarks['zone'] = zone
-            crossings_df = pd.read_csv('data/lkpg/pedestrian_crossings.csv')
             remarks.update(check_special_stopping_conditions(start['longitude'], start['latitude'], start.get('bearing', 0), start['timestamp'], stop, crossings_df))
             rows.append({
                 'trajectory_id': trajectory_id, 'vehicle': start['vehicle.id'],
@@ -177,18 +194,18 @@ def detect_trajectory_stops(entire_hour_df, trips=None, routes=None, stops=None,
                 'start_longitude': start.get('longitude', -1), 'start_latitude': start.get('latitude', -1),
                 'remarks': remarks
             })
-    return pd.DataFrame(rows, columns=output_columns)
+    return pl.DataFrame(rows, schema=output_columns, orient='row')
 
 
 
 
 if __name__ == "__main__":
-    trips = pd.read_csv('data/lkpg/trips.txt')
-    routes = pd.read_csv('data/lkpg/routes.txt')
-    stops = pd.read_csv('data/lkpg/stops.txt')
-    stop_times = pd.read_csv('data/lkpg/stop_times.txt')
+    trips = pl.read_csv('data/lkpg/trips.txt')
+    routes = pl.read_csv('data/lkpg/routes.txt')
+    stops = pl.read_csv('data/lkpg/stops.txt')
+    stop_times = pl.read_csv('data/lkpg/stop_times.txt')
 
-    entire_hour_df = pd.read_csv('data/lkpg/vehiclepositions_terminal_linköping_klt_otraf_2022-03-22_071600to083850.csv', dtype={'vehicle.id': 'string', 'trip_id': 'string', 'route_id': 'string'})
+    entire_hour_df = pl.read_csv('data/lkpg/vehiclepositions_terminal_linköping_klt_otraf_2022-03-22_071600to083850.csv', schema_overrides={'vehicle.id': pl.String, 'trip_id': pl.String, 'route_id': pl.String})
     trajectory_stops_df = detect_trajectory_stops(
         entire_hour_df,
         trips=trips,
