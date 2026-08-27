@@ -9,6 +9,8 @@ DIST_THRESHOLD = 6
 NB_CONSECUTIVE = 5
 # What is the start of all stop_id's for the stops at the terminal? For example: "90220050000500" (all stops at Linköping Centrum start with this sequence, and no other stop does)
 STOP_ID_PATTERN = "90220050000500" # Linköping
+# Maximum speed (in km/h) for a bus to be considered as stopped. For example: 1 km/h
+MAX_SPEED = 1
 
 # Input here the special zones. The zone has to be defined by at least 3 geographical points (its ends), and if a bus stopping inside should be considered as a regular stop or not.
 SPECIAL_ZONES = [
@@ -116,7 +118,7 @@ def detect_trajectory_stops(entire_hour_df, trips=None, routes=None, stops=None,
     positions['trajectory_id'] = positions['vehicle.id'].astype(str) + '-' + positions.groupby('vehicle.id')['timestamp'].transform(
         lambda timestamps: timestamps.diff().fillna(0).ge(gap_seconds).cumsum().astype(str)
     )
-    positions['is_zero_speed'] = positions['speed'].eq(0)
+    positions['is_zero_speed'] = positions['speed'].lt(MAX_SPEED)
 
     if berth_df is None:
         berth_df = pd.read_csv('data/lkpg/berths.csv')
