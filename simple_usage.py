@@ -74,6 +74,9 @@ def process_terminal(terminal_coordinates_df, terminal_name, date, time_ranges):
         total_df = pl.concat(total_df_list, how="diagonal_relaxed")
         total_df.write_csv(export_path)
     if mod_uncertainty:
+        static_data = {}
+        for provider in providers:
+            static_data[provider] = gtfs_import.koda_import_static(provider=provider, date=date, import_method="local", delete_tempdata=False)
         imprecision_pooled_mean, imprecision_pooled_std, imprecision_trajs = uncertainty.get_imprecision(terminal_name, date, providers, time_range=[time_ranges[0][0][0], time_ranges[-1][1][0]+1], min_trips_for_clustering=3, 
                                                                                                          vehiclepositions_path=export_path, paths_gpkg=False, verbose=False, dbscan_global_min_samples=3, dbscan_global_eps_percentile=20,
                                                                                                          comparison_group_by=comparison_group_by

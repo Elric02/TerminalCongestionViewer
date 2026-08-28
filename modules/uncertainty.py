@@ -18,26 +18,26 @@ def get_data(terminal, providers, date, vehiclepositions_path=None):
     df = pl.read_csv(vehiclepositions_path, schema_overrides={'trip_id': pl.Utf8, 'vehicle.id': pl.Utf8, 'route_id': pl.Utf8, 'route_short_name': pl.Utf8})
     return df
 
-def format_data(df, min_points_in_traj, verbose):
-    # Select all trip IDs (1 per trajectory) and put them in a list
-    trip_ids_all = df.select(pl.col('trip_id')).unique().sort('trip_id').to_series().to_list()
-    trip_ids_all = [x for x in trip_ids_all if x is not None]
+def format_data(df, min_points_in_traj, verbose, group_column='trip_id'):
+    # Select all groups (1 per trajectory) and put them in a list
+    group_ids_all = df.select(pl.col(group_column)).unique().sort(group_column).to_series().to_list()
+    group_ids_all = [group_id for group_id in group_ids_all if group_id is not None]
     if verbose:
-        print("Trip IDs considered:", trip_ids_all)
+        print("Groups considered:", group_ids_all)
 
-    trip_ids = []
+    group_ids = []
     # Format coordinates points to numpy arrays, 1 per traj, and put them in a list
     trip_coords_list = []
     trip_coords_inv_list = []
     trip_coords_rand_list = []
     i = 0
-    for trip in trip_ids_all:
+    for group_id in group_ids_all:
         i += 1
-        temp_df = df.filter(pl.col("trip_id") == trip)
+        temp_df = df.filter(pl.col(group_column) == group_id)
         # Remove potential trajectories with less than X points, as they are not interesting for the distance measures and can cause errors
         if temp_df.shape[0] < min_points_in_traj:
             continue
-        trip_ids.append(trip)
+        group_ids.append(group_id)
         # Trajectory with points in their normal order
         trip_coords_list.append(temp_df.select(pl.col('longitude'), pl.col('latitude')).to_numpy())
         # Trajectory with points in the reversed order (i.e. the first point becomes the last)
@@ -46,7 +46,7 @@ def format_data(df, min_points_in_traj, verbose):
         trip_coords_rand = temp_df.select(pl.col('longitude'), pl.col('latitude')).to_numpy()
         np.random.shuffle(trip_coords_rand)
         trip_coords_rand_list.append(trip_coords_rand)
-    return trip_ids, trip_coords_list, trip_coords_inv_list, trip_coords_rand_list
+    return group_ids, trip_coords_list, trip_coords_inv_list, trip_coords_rand_list
 
 
 def quick_analysis(data, measure="", name=""):
@@ -75,32 +75,38 @@ def cluster_trips_dbscan(trip_coords_list, eps=None, eps_percentile=0.5, min_sam
 # Merge VehiclePositions and Clusters dataframes and export to a GeoPackage (.gpkg) for QGIS
 def export_to_gpkg(df_vehiclepositions, df_clusters, terminal, date, export_intermediate_to_csv, verbose, paths_gpkg):
     print("Now exporting to .gpkg file(s)...")
-    merged = df_vehiclepositions.join(df_clusters, how='left', on='trip_id')
+    # If df_clusters is None, we assume that the clusters are already in df_vehiclepositions
+    if df_clusters is not None:
+        merged = df_vehiclepositions.join(df_clusters, how='left', on='trip_id')
+        # Build formatted column: "{route_short_name}_{direction_id}_{cluster}"
+        merged = merged.with_columns([
+            pl.col("route_short_name").fill_null("").cast(pl.Utf8),
+            pl.col("direction_id").fill_null("").cast(pl.Utf8),
+            pl.col("cluster").fill_null("").cast(pl.Utf8),
+            pl.concat_str(
+                [pl.col("route_short_name"), pl.col("direction_id"), pl.col("cluster")],
+                separator="_"
+            ).alias("route_dir_cluster"),
+        ])
+        categories_var_name = "route_dir_cluster"
+    else:
+        merged = df_vehiclepositions
+        categories_var_name = "cluster"
     # Don't use datapoints which don't have any cluster
     merged = merged.filter(pl.col("cluster").is_not_null())
 
-    # Build formatted column: "{route_short_name}_{direction_id}_{cluster}"
-    merged = merged.with_columns([
-        pl.col("route_short_name").fill_null("").cast(pl.Utf8),
-        pl.col("direction_id").fill_null("").cast(pl.Utf8),
-        pl.col("cluster").fill_null("").cast(pl.Utf8),
-        pl.concat_str(
-            [pl.col("route_short_name"), pl.col("direction_id"), pl.col("cluster")],
-            separator="_"
-        ).alias("route_dir_cluster"),
-    ])
     if export_intermediate_to_csv:
         out_path = f"output/joined_{terminal}_{date}.csv"
         merged.write_csv(out_path)
         print(f"Wrote joined CSV: {out_path} (rows={len(merged)})")
 
-    categories = merged['route_dir_cluster'].unique().sort().to_list()
+    categories = merged[categories_var_name].unique().sort().to_list()
     if verbose:
         print(f"Found {len(categories)} cluster(s): {categories}")
 
     all_gdfs = {}
     for i, cat_value in enumerate(categories):
-        subset = merged.filter(pl.col("route_dir_cluster") == cat_value)
+        subset = merged.filter(pl.col(categories_var_name) == cat_value)
         pandas_df = subset.to_pandas()
  
         # POINTS GEOPACKAGE
@@ -112,7 +118,7 @@ def export_to_gpkg(df_vehiclepositions, df_clusters, terminal, date, export_inte
         gdf = gpd.GeoDataFrame(pandas_df, geometry=geometry, crs="EPSG:4326")
         # Write mode: overwrite on first layer, append on the rest
         write_mode = "w" if i == 0 else "a"
-        gdf.to_file(output_points_gpkg, layer=cat_value, driver="GPKG", mode=write_mode)
+        gdf.to_file(output_points_gpkg, layer=str(cat_value), driver="GPKG", mode=write_mode)
         if verbose:
             print(f"Layer '{cat_value}': written ({len(gdf)} rows)")
 
@@ -128,7 +134,7 @@ def export_to_gpkg(df_vehiclepositions, df_clusters, terminal, date, export_inte
                 if len(coords) >= 2:
                     line = LineString(coords)
                     trajectory_gdfs.append(gpd.GeoDataFrame(
-                        {"route_dir_cluster": [cat_value], "n_points": [len(coords)]},
+                        {categories_var_name: [cat_value], "n_points": [len(coords)]},
                         geometry=[line],
                         crs="EPSG:4326"
                     ))
@@ -142,7 +148,7 @@ def export_to_gpkg(df_vehiclepositions, df_clusters, terminal, date, export_inte
         for i, (layer_name, gdf) in enumerate(all_gdfs.items()):
             gdf.to_file(
                 output_lines_gpkg,
-                layer=layer_name,
+                layer=str(layer_name),
                 driver="GPKG",
                 mode="w" if i == 0 else "a"
             )
@@ -168,7 +174,7 @@ def comparison(df, group_by, terminal, date, min_points_in_traj, min_trips_for_c
                     discard_if_several_clusters, export_intermediate_to_csv, verbose,
                     dbscan_global_eps_percentile, dbscan_global_min_samples, paths_gpkg, static_data):
     results = []
-    routedirs_count = [0, 0, 0, 0]
+    results_count = [0, 0, 0, 0]
 
     if group_by == "routes":
         # Remove values with no route or the special -2 sentinel
@@ -190,7 +196,7 @@ def comparison(df, group_by, terminal, date, min_points_in_traj, min_trips_for_c
                     if verbose:
                         print('p', dbscan_global_eps_percentile, 'eps', eps, 'clusters', nb_clusters, 'noise', counts[uniq==-1][0] if -1 in uniq else 0, 'labelcounts', list(zip(uniq, counts)))
                     if nb_clusters > 1 and discard_if_several_clusters:
-                        routedirs_count[1] += 1
+                        results_count[1] += 1
                         print(f"Discarding route {route}, direction {direction} since it had {nb_clusters} clusters and parameter discard_if_several_clusters is set to True.")
                         results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "nb_pairs": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
                     else:
@@ -202,27 +208,27 @@ def comparison(df, group_by, terminal, date, min_points_in_traj, min_trips_for_c
                         for cluster in range(nb_clusters):
                             df_clusters_cluster = df_clusters.filter(pl.col("cluster") == cluster)
                             if df_clusters_cluster.shape[0] <= 1:
-                                routedirs_count[2] += 1
+                                results_count[2] += 1
                                 print(f"Discarding route {route}, direction {direction}, cluster {cluster} since there are only {df_clusters_cluster.shape[0]} trips in the main cluster.")
                                 results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "nb_pairs": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
                                 continue
                             _, trip_coords_list_cluster, _, _ = format_data(df_direction.join(df_clusters_cluster, on="trip_id", how="left").filter(pl.col("cluster") == cluster), min_points_in_traj, verbose)
-                            routedirs_count[0] += 1
+                            results_count[0] += 1
                             print(f"(route {iter_id+1}/{len(route_values)}) Now calculating distances for route {route}, direction {direction}, cluster {cluster}...")
                             sspd = tdist.pdist(trip_coords_list_cluster, metric="sspd", verbose=verbose)
                             dfd = tdist.pdist(trip_coords_list_cluster, metric="discret_frechet", verbose=verbose)
                             results.append(quick_analysis(sspd, measure="sspd", name=f"{date} route_{route}_dir_{direction}_cluster_{cluster}"))
                             results.append(quick_analysis(dfd, measure="dfd", name=f"{date} route_{route}_dir_{direction}_cluster_{cluster}"))
                 else:
-                    routedirs_count[3] += 1
+                    results_count[3] += 1
                     print(f"Not enough trajectories for route {route}, direction {direction} to calculate distance measures. Try changing the min_trips_for_clustering (current value: {min_trips_for_clustering}) parameter if you believe this is a mistake.")
                     results.append({"measure": "None", "name": f"{date} route_{route}_dir_{direction}", "nb_pairs": len(trip_ids), "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
         if export_intermediate_to_csv:
             out_path = f'output/cluster_assignments_{terminal}_{date}.csv'
             df_clusters.write_csv(out_path)
             print(f"Wrote clusters CSV: {out_path} (rows={len(df_clusters)})")
-        export_to_gpkg(df, df_clusters, terminal, date, export_intermediate_to_csv, verbose, paths_gpkg)
-        print("Route+dirs... kept:", routedirs_count[0], ", discarded because of multiple clusters:", routedirs_count[1], ", discarded because of too few trajs in main cluster:", routedirs_count[2], ", discarded because too few trajectories in general:", routedirs_count[3])
+        export_to_gpkg(df, trajectory_clusters_df, terminal, date, export_intermediate_to_csv, verbose, paths_gpkg)
+        print("Route+dirs... kept:", results_count[0], ", discarded because of multiple clusters:", results_count[1], ", discarded because of too few trajs in main cluster:", results_count[2], ", discarded because too few trajectories in general:", results_count[3])
         
     if group_by == "berths":
         # Radius (in meters) around the coordinates of a berth to consider a bus as stopped at that berth. For example: 6
@@ -237,7 +243,6 @@ def comparison(df, group_by, terminal, date, min_points_in_traj, min_trips_for_c
         max_speed = 1
         # What is the start of all stop_id's for the stops at the terminal? For example: "90220050000500" (all stops at Linköping Centrum start with this sequence, and no other stop does)
         stop_id_pattern = "90220050000500" # Linköping
-        output_csv = "trajectory_stops_lkpg_220322_v3.csv"
         berth_df = pl.read_csv('stop_detection/data/lkpg/berths.csv')
         provider = "otraf"
 
@@ -327,16 +332,74 @@ def comparison(df, group_by, terminal, date, min_points_in_traj, min_trips_for_c
                     'end_direction': stop.row(-1, named=True)['direction_id'], 'end_assigned_berth': end_berth,
                     'start_longitude': start.get('longitude', -1), 'start_latitude': start.get('latitude', -1)
                 })
-        # rows_df is mostly to get the information of detected_berth, the rest of the columns is just there to give details on the process for the intermediate csv.
-        rows_df = pl.DataFrame(rows, schema=output_columns, orient='row')
+        # traj_stops_df is mostly to get the information of detected_berth, the rest of the columns is just there to give details on the process for the intermediate csv.
+        traj_stops_df = pl.DataFrame(rows, schema=output_columns, orient='row')
         if export_intermediate_to_csv:
-            rows_df.write_csv(output_csv)
-            print(f"Wrote trajectory stops CSV: {output_csv} (rows={len(rows_df)})")
-        #TODO: Group using detected_berth, and implement the distance calculations for the berth-based comparison, similar to the route-based comparison above.
-        
+            out_path = "output/trajectory_stops_lkpg_220322_v3.csv"
+            traj_stops_df.write_csv(out_path)
+            print(f"Wrote trajectory stops CSV: {out_path} (rows={len(traj_stops_df)})")
+        #Add a cluster number to every point based on its trajectory's berths.
+        berth_sequences = {}
+        trajectory_berths = {}
+        cluster_numbers = {}
+        for stop in traj_stops_df.sort(['trajectory_id', 'stop_number']).iter_rows(named=True):
+            berth = str(stop['detected_berth'])
+            if berth == '-1': continue
+            trajectory_id = stop['trajectory_id']
+            berth_sequences.setdefault(trajectory_id, []).append(berth)
+            trajectory_berths.setdefault(trajectory_id, set()).add(berth)
+        for trajectory_id, berth_sequence in berth_sequences.items():
+            berth_key = tuple(sorted(berth_sequence))
+            if berth_key not in cluster_numbers:
+                cluster_numbers[berth_key] = len(cluster_numbers)
+            berth_sequences[trajectory_id] = cluster_numbers[berth_key]
+        trajectory_clusters_df = pl.DataFrame({
+            'trajectory_id': list(berth_sequences.keys()),
+            'cluster': list(berth_sequences.values()),
+            'berths': [', '.join(sorted(trajectory_berths[trajectory_id])) for trajectory_id in berth_sequences],
+        }, schema={'trajectory_id': pl.String, 'cluster': pl.Int64, 'berths': pl.String})
+        clusters_df = (
+            trajectory_clusters_df
+            .group_by('cluster', maintain_order=True)
+            .agg([
+                pl.len().alias('nb_trajs'),
+                pl.col('berths').first(),
+            ])
+        )
+        df = positions.join(trajectory_clusters_df, on='trajectory_id', how='left')
+        if export_intermediate_to_csv:
+            out_path = f'output/positions_with_clusters_{terminal}_{date}.csv'
+            #df.write_csv(out_path)
+            print(f"Wrote positions CSV with clusters: {out_path} (rows={df.height})")
+            out_path = f'output/cluster_assignments_{terminal}_{date}.csv'
+            clusters_df.write_csv(out_path)
+            print(f"Wrote clusters CSV: {out_path} (rows={clusters_df.height})")
+
+        i = -1
+        for cluster_row in clusters_df.iter_rows(named=True):
+            i += 1
+            temp_df = (
+                positions.join(trajectory_clusters_df, on='trajectory_id', how='inner')
+                .filter(pl.col('cluster') == cluster_row['cluster'])
+            )
+            if cluster_row['nb_trajs'] < min_trips_for_clustering or cluster_row['nb_trajs'] < 2:
+                results_count[1] += 1
+                print(f"Discarding cluster {cluster_row['cluster']} with berth(s) {cluster_row['berths']} since there are only {cluster_row['nb_trajs']} trajectories in the cluster. Try changing the min_trips_for_clustering (current value: {min_trips_for_clustering}) parameter if you believe this is a mistake.")
+                results.append({"measure": "None", "name": f"{date} cluster_{cluster_row['cluster']}_berths_{cluster_row['berths'].replace(', ', '-')}", "nb_trajs": cluster_row['nb_trajs'], "mean": -1, "std": -1, "min": -1, "max": -1, "median": -1})
+                continue
+            _, trip_coords_list_cluster, _, _ = format_data(temp_df, min_points_in_traj, verbose, group_column='trajectory_id')
+            results_count[0] += 1
+            print(f"(cluster {i+1}/{clusters_df.shape[0]}) Now calculating distances for cluster {cluster_row['cluster']} with berths {cluster_row['berths']}...")
+            sspd = tdist.pdist(trip_coords_list_cluster, metric="sspd", verbose=verbose)
+            dfd = tdist.pdist(trip_coords_list_cluster, metric="discret_frechet", verbose=verbose)
+            results.append(quick_analysis(sspd, measure="sspd", name=f"{date} cluster_{cluster_row['cluster']}_berths_{cluster_row['berths'].replace(', ', '-')}"))
+            results.append(quick_analysis(dfd, measure="dfd", name=f"{date} cluster_{cluster_row['cluster']}_berths_{cluster_row['berths'].replace(', ', '-')}"))
+
+        export_to_gpkg(df, None, terminal, date, export_intermediate_to_csv, verbose, paths_gpkg)
+        print("Clusters... kept:", results_count[0], ", discarded because of too few trajectories in cluster:", results_count[1])
 
     results_df = pl.DataFrame(results)
-    return results_df, routedirs_count
+    return results_df, results_count
 
 
 def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in_traj=10, min_trips_for_clustering=5, vehiclepositions_path=None,
@@ -355,7 +418,7 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
     :type time_range: list[int]
     :param min_points_in_traj: Minimum number of points in a trajectory for it to be considered in the calculations
     :type min_points_in_traj: int
-    :param min_trips_for_clustering: Minimum number of trips/trajectories in the route+dir set for the clustering and analysis to happen
+    :param min_trips_for_clustering: Minimum number of trips/trajectories in the route+dir set for the clustering (or trajs in the berths cluster) and analysis to happen
     :type min_trips_for_clustering: int
     :param vehiclepositions_path: Path to the CSV file containing the VehiclePositions data for the desired terminal, date and providers. If None, it will be generated automatically
     :type vehiclepositions_path: str or None
@@ -392,7 +455,7 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
     )
     print(f"Uncertainty module: restricted time from {time_range[0]:02d}:00:00 (timestamp {start}) to {(time_range[1]-1):02d}:59:59  (timestamp {end})")
     # group_by is "routes" or "berths"
-    results_df, routedirs_count = comparison(data, group_by=comparison_group_by, terminal=terminal, date=date, min_points_in_traj=min_points_in_traj,
+    results_df, results_count = comparison(data, group_by=comparison_group_by, terminal=terminal, date=date, min_points_in_traj=min_points_in_traj,
                             min_trips_for_clustering=min_trips_for_clustering, discard_if_several_clusters=discard_if_several_clusters,
                             export_intermediate_to_csv=export_intermediate_to_csv, verbose=verbose, dbscan_global_eps_percentile=dbscan_global_eps_percentile,
                             dbscan_global_min_samples=dbscan_global_min_samples, paths_gpkg=paths_gpkg, static_data=static_data)
@@ -414,12 +477,18 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
     pooled_std = np.sqrt((within_ss + between_ss) / (ns.sum() - 1))
 
     # Intermediate results for calculation of imprecision
-    imprecision_trajs = {
-        "kept": routedirs_count[0],
-        "multiple_clusters": routedirs_count[1],
-        "too_few_trajs_main_cluster": routedirs_count[2],
-        "too_few_trajs_general": routedirs_count[3]
-    }
+    if len(results_count) > 2:
+        imprecision_trajs = {
+            "kept": results_count[0],
+            "multiple_clusters": results_count[1],
+            "too_few_trajs_main_cluster": results_count[2],
+            "too_few_trajs_general": results_count[3]
+        }
+    else: # Was likely done by berths instead of route+dirs
+        imprecision_trajs = {
+            "kept": results_count[0],
+            "too_few_trajs_general": results_count[1]
+        }
 
     print("-- Imprecision calculations done! --")
     return pooled_mean, pooled_std, imprecision_trajs
