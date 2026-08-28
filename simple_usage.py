@@ -20,7 +20,7 @@ import_method = "online" # "online" for download from KoDa or "local" if files a
 delete_tempdata = True # Whether to delete all GTFS data from the tempdata folder after the operation is completed.
 # Enable/disable the different modules here
 mod_koda_import = False
-mod_uncertainty = False
+mod_uncertainty = True
 mod_weatherfactors = False
 mod_otherfactors = False
 mod_process_results = True # Independent module, takes the .txt results and processes them rather than adding something in the txt files
@@ -79,7 +79,7 @@ def process_terminal(terminal_coordinates_df, terminal_name, date, time_ranges):
             static_data[provider] = gtfs_import.koda_import_static(provider=provider, date=date, import_method="local", delete_tempdata=False)
         imprecision_pooled_mean, imprecision_pooled_std, imprecision_trajs = uncertainty.get_imprecision(terminal_name, date, providers, time_range=[time_ranges[0][0][0], time_ranges[-1][1][0]+1], min_trips_for_clustering=3, 
                                                                                                          vehiclepositions_path=export_path, paths_gpkg=False, verbose=False, dbscan_global_min_samples=3, dbscan_global_eps_percentile=20,
-                                                                                                         comparison_group_by=comparison_group_by
+                                                                                                         comparison_group_by=comparison_group_by, static_data=static_data
                                                                                                         )
         uncertainty_results = uncertainty_results | {"imprecision": {"imprecision_val": imprecision_pooled_mean, "imprecision_std": imprecision_pooled_std, "imprecision_trajs": imprecision_trajs}}
     return uncertainty_results
