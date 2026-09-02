@@ -34,7 +34,7 @@ FEATURE_NAMES = [
     "weather.Lufttryck reducerat havsytans nivå.value",
 ]
 RESPONSE_NAME = "imprecision.imprecision_val"
-CSV_PATHS = ["merged_results_västerås_vastmanland.csv", "merged_results_västerås_ul.csv"]
+CSV_PATHS = ["merged_results_linköping_otraf_a1.csv", "merged_results_linköping_otraf_a2.csv"]
 EXPORT_TXT_RESULTS = False
 NORMALISE_FEATURES = False
 
@@ -678,6 +678,120 @@ def plot_residuals_vs_features(df: pl.DataFrame, target: str, features: list[str
     fig.suptitle("Residual diagnostics (linear model) (all terminals together as 1 dataset)", y=0.995, fontsize=14)
     return fig
 
+ 
+# --------------------------------------------------------------------------- #
+# 7. Compare the same timestamps between two datasets
+# --------------------------------------------------------------------------- #
+def plot_comparison_same_time(df: pl.DataFrame, target: str):
+    """Plot a direct same-time comparison between exactly two datasets.
+
+    The function assumes both datasets have the same datetime index: same number
+    of rows, unique timestamps within each dataset, and identical timestamp values
+    across the two datasets. This makes it possible to compare the target value at
+    the same moment in time directly.
+    """
+    if "dataset" not in df.columns:
+        raise ValueError("The DataFrame must include a 'dataset' column.")
+    if "datetime" not in df.columns:
+        raise ValueError("The DataFrame must include a 'datetime' column.")
+
+    datasets = sorted(df["dataset"].unique().to_list())
+    if len(datasets) != 2:
+        raise ValueError(
+            f"Expected exactly 2 datasets for a same-time comparison, found {len(datasets)}: {datasets}"
+        )
+
+    dataset_a, dataset_b = datasets
+    df_a = (
+        df.filter(pl.col("dataset") == dataset_a)
+        .select(["datetime", target])
+        .with_columns(pl.col(target).cast(pl.Float64))
+        .sort("datetime")
+    )
+    df_b = (
+        df.filter(pl.col("dataset") == dataset_b)
+        .select(["datetime", target])
+        .with_columns(pl.col(target).cast(pl.Float64))
+        .sort("datetime")
+    )
+
+    if df_a.height != df_b.height:
+        raise ValueError(
+            f"Dataset lengths do not match for same-time comparison: {dataset_a} has {df_a.height} rows, "
+            f"{dataset_b} has {df_b.height} rows."
+        )
+    if df_a["datetime"].n_unique() != df_a.height:
+        raise ValueError(f"Dataset '{dataset_a}' does not contain unique datetimes.")
+    if df_b["datetime"].n_unique() != df_b.height:
+        raise ValueError(f"Dataset '{dataset_b}' does not contain unique datetimes.")
+
+    times_a = df_a["datetime"].to_list()
+    times_b = df_b["datetime"].to_list()
+    if times_a != times_b:
+        mismatch_count = sum(1 for x, y in zip(times_a, times_b) if x != y)
+        raise ValueError(
+            f"The datetime values are not identical across datasets. "
+            f"Found {mismatch_count} mismatched timestamps out of {len(times_a)}."
+        )
+
+    aligned = df_a.join(df_b, on="datetime", how="inner", suffix="_b")
+    values_a = aligned[target].to_numpy()
+    values_b = aligned[f"{target}_b"].to_numpy()
+
+    if len(values_a) > 1:
+        corr = float(np.corrcoef(values_a, values_b)[0, 1])
+        rmse = float(np.sqrt(np.mean((values_a - values_b) ** 2)))
+        mean_delta = float(np.mean(values_b - values_a))
+    else:
+        corr = float("nan")
+        rmse = float("nan")
+        mean_delta = float("nan")
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    ax = axes[0]
+    ax.plot(
+        df_a["datetime"].to_list(),
+        df_a[target].to_numpy(),
+        marker="o",
+        linestyle="-",
+        linewidth=1.5,
+        label=dataset_a,
+    )
+    ax.plot(
+        df_b["datetime"].to_list(),
+        df_b[target].to_numpy(),
+        marker="o",
+        linestyle="-",
+        linewidth=1.5,
+        label=dataset_b,
+    )
+    ax.set_title(f"{target} over time for both datasets")
+    ax.set_xlabel("datetime")
+    ax.set_ylabel(target)
+    ax.legend()
+    x_labels = [str(label) for label in df_a["datetime"].to_list()]
+    if len(x_labels) > 1:
+        step = max(1, len(x_labels) // 15)
+        tick_positions = list(range(0, len(x_labels), step))
+        tick_labels = [x_labels[i] for i in tick_positions]
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels(tick_labels, rotation=45, ha="right")
+    else:
+        ax.tick_params(axis="x", rotation=45)
+
+    ax = axes[1]
+    scatter = ax.scatter(values_a, values_b, alpha=0.7, cmap="viridis", s=25)
+    min_val = float(np.min([values_a.min(), values_b.min()]))
+    max_val = float(np.max([values_a.max(), values_b.max()]))
+    ax.plot([min_val, max_val], [min_val, max_val], color="red", linestyle="--", linewidth=1)
+    ax.set_title(f"Same-time comparison: {dataset_a} vs {dataset_b}")
+    ax.set_xlabel(f"{dataset_a}: {target}")
+    ax.set_ylabel(f"{dataset_b}: {target}")
+
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    fig.suptitle(f"Same-time comparison for {target} ({dataset_a} vs {dataset_b})", y=0.995, fontsize=14)
+    return fig
 
 
 if __name__ == "__main__":
@@ -696,14 +810,19 @@ if __name__ == "__main__":
         dfs.append(df_temp)
     
     # Combine all datasets
-    df = pl.concat(dfs).drop_nans()
+    df = pl.concat(dfs)
+
+    # Plots and analysis before dropping NaNs
+    plot_comparison_same_time(df, RESPONSE_NAME)
+
+    df = df.drop_nans()
     linear_regression(df, FEATURE_NAMES, RESPONSE_NAME, EXPORT_TXT_RESULTS, NORMALISE_FEATURES)
 
     plot_target_distribution(df, RESPONSE_NAME)
     #plot_feature_distributions(df, FEATURE_NAMES)
     #plot_correlation_heatmap(df, RESPONSE_NAME, FEATURE_NAMES)
-    plot_feature_vs_target_scatter(df, RESPONSE_NAME, FEATURE_NAMES)
+    #plot_feature_vs_target_scatter(df, RESPONSE_NAME, FEATURE_NAMES)
     #plot_pairwise_scatter_matrix(df, RESPONSE_NAME, FEATURE_NAMES)
-    plot_residuals_vs_features(df, RESPONSE_NAME, FEATURE_NAMES)
+    #plot_residuals_vs_features(df, RESPONSE_NAME, FEATURE_NAMES)
 
     plt.show()

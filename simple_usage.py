@@ -20,7 +20,7 @@ import_method = "online" # "online" for download from KoDa or "local" if files a
 delete_tempdata = True # Whether to delete all GTFS data from the tempdata folder after the operation is completed.
 # Enable/disable the different modules here
 mod_koda_import = False
-mod_uncertainty = True
+mod_uncertainty = False
 mod_weatherfactors = False
 mod_otherfactors = False
 mod_process_results = True # Independent module, takes the .txt results and processes them rather than adding something in the txt files
@@ -31,8 +31,8 @@ hours = [7, 16]
 comparison_group_by = "berths"
 
 # Only used if mod_process_results is True
-results_folder_path = "output/results/A1 västerås ul"
-results_csv_path = "output/merged_results_västerås_ul.csv"
+results_folder_path = "output/results/A2 linköping otraf"
+results_csv_path = "output/merged_results_linköping_otraf_a2.csv"
 
 
 # Whole day import
