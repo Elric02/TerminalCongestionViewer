@@ -172,7 +172,9 @@ def get_planned_berth(row, stops, stop_times, stop_id_pattern):
 
 def comparison(df, group_by, terminal, date, min_points_in_traj, min_trips_for_clustering,
                     discard_if_several_clusters, export_intermediate_to_csv, verbose,
-                    dbscan_global_eps_percentile, dbscan_global_min_samples, paths_gpkg, static_data):
+                    dbscan_global_eps_percentile, dbscan_global_min_samples, paths_gpkg, static_data, 
+                    berth_dist_threshold, expected_berth_dist_threshold, nb_consecutive_berths, 
+                    traj_gap_seconds, max_speed_stopped, stop_id_pattern):
     results = []
     results_count = [0, 0, 0, 0]
 
@@ -231,18 +233,6 @@ def comparison(df, group_by, terminal, date, min_points_in_traj, min_trips_for_c
         print("Route+dirs... kept:", results_count[0], ", discarded because of multiple clusters:", results_count[1], ", discarded because of too few trajs in main cluster:", results_count[2], ", discarded because too few trajectories in general:", results_count[3])
         
     if group_by == "berths":
-        # Radius (in meters) around the coordinates of a berth to consider a bus as stopped at that berth. For example: 6
-        dist_threshold = 6
-        # Same but applies for the expected berth(s) (i.e. the one in the static data for the trip the bus is on at the moment it stops, and when it departs again). For example: 9
-        expected_berth_dist_threshold = 9
-        # Input here how many times a row a bus must be at speed<max_speed to be considered stopped. For example: 6
-        nb_consecutive = 6
-        # Input here how much time (in seconds) can pass between two consecutive rows for them to be considered part of the same trajectory. For example: 12
-        gap_seconds = 12
-        # Maximum speed (in km/h) for a bus to be considered as stopped. For example: 1 km/h
-        max_speed = 1
-        # What is the start of all stop_id's for the stops at the terminal? For example: "90220050000500" (all stops at Linköping Centrum start with this sequence, and no other stop does)
-        stop_id_pattern = "90220050000500" # Linköping
         berth_df = pl.read_csv('stop_detection/data/lkpg/berths.csv')
         provider = "otraf"
 
@@ -250,14 +240,14 @@ def comparison(df, group_by, terminal, date, min_points_in_traj, min_trips_for_c
         positions = (
             df.sort(['vehicle.id', 'timestamp'])
             .with_columns(
-                trajectory_break=pl.col('timestamp').diff().over('vehicle.id').fill_null(0).ge(gap_seconds)
+                trajectory_break=pl.col('timestamp').diff().over('vehicle.id').fill_null(0).ge(traj_gap_seconds)
             )
             .with_columns(
                 trajectory_id=(
                     pl.col('vehicle.id').cast(pl.String) + pl.lit('-') +
                     pl.col('trajectory_break').cum_sum().over('vehicle.id').cast(pl.String)
                 ),
-                is_stopped=pl.col('speed').lt(max_speed),
+                is_stopped=pl.col('speed').lt(max_speed_stopped),
             )
             .drop('trajectory_break')
         )
@@ -277,7 +267,7 @@ def comparison(df, group_by, terminal, date, min_points_in_traj, min_trips_for_c
                 ).filter(pl.col('is_stopped'))
                 .partition_by('stopped_group', as_dict=False, maintain_order=True)
             ]
-            qualifying_stops = [group.drop('stopped_group') for group in stop_groups if group.height > nb_consecutive]
+            qualifying_stops = [group.drop('stopped_group') for group in stop_groups if group.height > nb_consecutive_berths]
             trajectory_start = trajectory.row(0, named=True)['timestamp']
             trajectory_end = trajectory.row(-1, named=True)['timestamp']
 
@@ -316,7 +306,7 @@ def comparison(df, group_by, terminal, date, min_points_in_traj, min_trips_for_c
                 if not detected_berth_found:
                     for berth_row in berth_df.iter_rows(named=True):
                         _, _, distance = geod.inv(start['longitude'], start['latitude'], berth_row['longitude'], berth_row['latitude'])
-                        if distance <= dist_threshold:
+                        if distance <= berth_dist_threshold:
                             detected_berth = berth_row['berth']
                             detected_berth_found = True
                             break
@@ -404,7 +394,8 @@ def comparison(df, group_by, terminal, date, min_points_in_traj, min_trips_for_c
 
 def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in_traj=10, min_trips_for_clustering=5, vehiclepositions_path=None,
                     discard_if_several_clusters=False, export_intermediate_to_csv=False, export_final_to_csv=True, verbose=False,
-                    dbscan_global_eps_percentile=12, dbscan_global_min_samples=3, paths_gpkg=True, comparison_group_by="routes", static_data=None):
+                    dbscan_global_eps_percentile=12, dbscan_global_min_samples=3, paths_gpkg=True, comparison_group_by="routes", static_data=None,
+                    berth_dist_threshold=6, expected_berth_dist_threshold=9, nb_consecutive_berths=6, traj_gap_seconds=12, max_speed_stopped=1, stop_id_pattern="90220050000500"):
     """Get the imprecision value(s) for the desired location and timeframe
 
     :param terminal: The desired terminal name
@@ -422,7 +413,7 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
     :type min_trips_for_clustering: int
     :param vehiclepositions_path: Path to the CSV file containing the VehiclePositions data for the desired terminal, date and providers. If None, it will be generated automatically
     :type vehiclepositions_path: str or None
-    :param discard_if_several_clusters: Whether the program should discard the route+dirs for which clustering has yield to more than 1 cluster (not counting outliers)
+    :param discard_if_several_clusters: (Routes comparison only) Whether the program should discard the route+dirs for which clustering has yield to more than 1 cluster (not counting outliers)
     :type discard_if_several_clusters: Boolean
     :param export_intermediate_to_csv: Whether to export the intermediate files (such as cluster_assignments and joined) to CSVs
     :type export_intermediate_to_csv: Boolean
@@ -430,17 +421,30 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
     :type export_final_to_csv: Boolean
     :param verbose: Print (some) information about completed operations on the console. Some important stuff will be printed anyway
     :type verbose: Boolean
-    :param dbscan_global_eps_percentile: Parameter for the DBSCAN for the process "split by route+dir and cluster". Note: eps_percentile is the percentage in full numbers (e.g. 0.5 is 0.5%, NOT 50%)
+    :param dbscan_global_eps_percentile: (Routes comparison only) Parameter for the DBSCAN for the process "split by route+dir and cluster". Note: eps_percentile is the percentage in full numbers (e.g. 0.5 is 0.5%, NOT 50%)
     :type dbscan_global_eps_percentile: float
-    :param dbscan_global_min_samples: Parameter for the DBSCAN for the process "split by route+dir and cluster"
+    :param dbscan_global_min_samples: (Routes comparison only) Parameter for the DBSCAN for the process "split by route+dir and cluster"
     :type dbscan_global_min_samples: int
     :param paths_gpkg: Whether you also want a 2nd GPKG file with paths instead of points
     :type paths_gpkg: Boolean
     :param comparison_group_by: For the distance computing, whethere to group by "routes" (including direction and cluster) or "berths"
     :type comparison_group_by: str
-    :param static_data: Static GTFS data for the terminal, used only if comparison_group_by is "berths". It should be a dictionary with keys "operators", each containing a polars DataFrame.
+    :param static_data: (Berths comparison only) Static GTFS data for the terminal, used only if comparison_group_by is "berths". It should be a dictionary with keys "operators", each containing a polars DataFrame.
     :type static_data: dict[str, pl.DataFrame] or None
-    :return: Dict containing the imprecision results
+    :param berth_dist_threshold: (Berths comparison only) Radius in meters around a berth coordinate to consider a bus as stopped at that berth. For example: 6.
+    :type berth_dist_threshold: int
+    :param expected_berth_dist_threshold: (Berths comparison only) Radius in meters around the expected berth(s) to consider a bus stopped there, based on static GTFS data for the trip. For example: 9.
+    :type expected_berth_dist_threshold: int
+    :param nb_consecutive_berths: (Berths comparison only) Number of consecutive rows where the bus speed is below max_speed required for the stop to be considered valid. For example: 6.
+    :type nb_consecutive_berths: int
+    :param traj_gap_seconds: (Berths comparison only) Maximum allowed time gap in seconds between consecutive rows for them to belong to the same trajectory. For example: 12.
+    :type traj_gap_seconds: int
+    :param max_speed_stopped: (Berths comparison only) Maximum speed in km/h for a bus to be considered as stopped. For example: 1.
+    :type max_speed_stopped: float
+    :param stop_id_pattern: (Berths comparison only) Prefix that identifies terminal stop IDs, e.g. "90220050000500" for Linköping Centrum stops.
+    :type stop_id_pattern: str
+    :return: Tuple containing the pooled mean and standard deviation of imprecision, plus counts of kept and discarded trajectories.
+    :rtype: tuple
     """
     data = get_data(terminal, providers, date, vehiclepositions_path=vehiclepositions_path)
     start = datetime.timestamp(datetime.strptime(f"{date} {time_range[0]:02d}:00:00", "%Y-%m-%d %H:%M:%S"))
@@ -458,7 +462,9 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
     results_df, results_count = comparison(data, group_by=comparison_group_by, terminal=terminal, date=date, min_points_in_traj=min_points_in_traj,
                             min_trips_for_clustering=min_trips_for_clustering, discard_if_several_clusters=discard_if_several_clusters,
                             export_intermediate_to_csv=export_intermediate_to_csv, verbose=verbose, dbscan_global_eps_percentile=dbscan_global_eps_percentile,
-                            dbscan_global_min_samples=dbscan_global_min_samples, paths_gpkg=paths_gpkg, static_data=static_data)
+                            dbscan_global_min_samples=dbscan_global_min_samples, paths_gpkg=paths_gpkg, static_data=static_data,
+                            berth_dist_threshold=berth_dist_threshold, expected_berth_dist_threshold=expected_berth_dist_threshold, nb_consecutive_berths=nb_consecutive_berths,
+                            traj_gap_seconds=traj_gap_seconds, max_speed_stopped=max_speed_stopped, stop_id_pattern=stop_id_pattern)
     if export_final_to_csv:
         directory = "output/uncertainty"
         os.makedirs(directory, exist_ok=True)
