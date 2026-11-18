@@ -34,7 +34,7 @@ FEATURE_NAMES = [
     "weather.Lufttryck reducerat havsytans nivå.value",
 ]
 RESPONSE_NAME = "imprecision.imprecision_val"
-CSV_PATHS = ["merged_results_linköping_otraf_a1.csv", "merged_results_linköping_otraf_a2.csv"]
+CSV_PATHS = ["merged_results_linköping_otraf_a2.csv"]
 EXPORT_TXT_RESULTS = False
 NORMALISE_FEATURES = False
 
@@ -221,7 +221,7 @@ def plot_kfold_predictions(cv_results: dict[str, object]) -> plt.Figure:
 
         ax.set_title(f"Fold {fold['fold']} (R²={fold['r2']:.3f})")
         ax.set_xlabel("Desired value")
-        ax.set_ylabel("Guessed value")
+        ax.set_ylabel("Predicted value")
 
     for j in range(n_folds, len(axes)):
         axes[j].axis("off")
@@ -261,9 +261,9 @@ def plot_kfold_predictions_multi_dataset(folds: list[dict]) -> plt.Figure:
         
         # Calculate mean R² for dataset
         mean_r2 = np.mean([fold["r2"] for fold in dataset_folds])
-        ax.set_title(f"{dataset} (Mean R²={mean_r2:.3f})")
-        ax.set_xlabel("Desired value")
-        ax.set_ylabel("Guessed value")
+        ax.set_title(f"{dataset} (Mean R²={mean_r2:.3f})", fontsize=26)
+        ax.set_xlabel("Desired value", fontsize=22)
+        ax.set_ylabel("Predicted value", fontsize=22)
         #ax.legend(fontsize=8)
     
     fig.tight_layout(rect=[0, 0, 1, 0.98])
@@ -398,8 +398,21 @@ def linear_regression(df, feature_names, response_name, export_txt_results, norm
 # --------------------------------------------------------------------------- #
 # 1. Target distribution
 # --------------------------------------------------------------------------- #
-def plot_target_distribution(df: pl.DataFrame, target: str):
-    """Histogram + KDE of the target variable. Check for skew, outliers, multimodality."""
+LINKOPING_LATITUDE_DEGREES = 58.4108
+METERS_PER_DEGREE = 111_320.0 * math.cos(math.radians(LINKOPING_LATITUDE_DEGREES))
+
+def plot_target_distribution(df: pl.DataFrame, target: str, transform_meters: bool = True):
+    """Histogram + KDE of the target variable. Check for skew, outliers, multimodality.
+
+    If transform_meters is True, the target (in degrees) is converted to meters
+    using a flat-earth approximation at Linköping's latitude.
+    """
+    if transform_meters:
+        df = df.with_columns((pl.col(target) * METERS_PER_DEGREE).alias(target))
+        xlabel = f"{target} (m)"
+    else:
+        xlabel = target
+
     if "dataset" in df.columns:
         datasets = sorted(df["dataset"].unique().to_list())
         n_datasets = len(datasets)
@@ -421,8 +434,8 @@ def plot_target_distribution(df: pl.DataFrame, target: str):
             sns.histplot(values, kde=True, ax=axes[i], color=colors[i % len(colors)], edgecolor="white")
             axes[i].axvline(np.mean(values), color="red", linestyle="--", label="mean")
             axes[i].axvline(np.median(values), color="orange", linestyle="--", label="median")
-            axes[i].set_title(f"{dataset}: {target}")
-            axes[i].set_xlabel(target)
+            axes[i].set_title(f"{dataset}", fontsize=18)
+            axes[i].set_xlabel(xlabel, fontsize=14)
             axes[i].set_xlim(x_min, x_max)
             axes[i].legend()
         
@@ -431,15 +444,15 @@ def plot_target_distribution(df: pl.DataFrame, target: str):
             axes[j].axis("off")
         
         fig.tight_layout(rect=[0, 0, 1, 0.96])
-        fig.suptitle(f"Distribution of target: {target}", y=0.995, fontsize=14)
+        fig.suptitle(f"SSPD distributions", y=0.995, fontsize=26)
     else:
         fig, ax = plt.subplots(figsize=(7, 5))
         values = df[target].to_numpy()
         sns.histplot(values, kde=True, ax=ax, color="steelblue", edgecolor="white")
         ax.axvline(np.mean(values), color="red", linestyle="--", label="mean")
         ax.axvline(np.median(values), color="orange", linestyle="--", label="median")
-        ax.set_title(f"Distribution of target: {target}")
-        ax.set_xlabel(target)
+        ax.set_title(f"SSPD distribution")
+        ax.set_xlabel(xlabel)
         ax.legend()
         fig.tight_layout()
     
@@ -486,7 +499,7 @@ def plot_feature_distributions(df: pl.DataFrame, features: list[str]):
                     edgecolor="white",
                     alpha=0.6,
                 )
-                axes[row, column].set_title(f"{dataset}: {feat}")
+                axes[row, column].set_title(f"{dataset}: {feat}", fontsize=9)
                 axes[row, column].set_xlim(x_min, x_max)
     else:
         n = len(features)
@@ -499,7 +512,7 @@ def plot_feature_distributions(df: pl.DataFrame, features: list[str]):
         for i, feat in enumerate(features):
             values = df[feat].to_numpy()
             sns.histplot(values, kde=True, ax=axes[i], color="seagreen", edgecolor="white")
-            axes[i].set_title(feat)
+            axes[i].set_title(feat, fontsize=9)
 
         for j in range(n, len(axes)):
             axes[j].axis("off")
@@ -813,16 +826,16 @@ if __name__ == "__main__":
     df = pl.concat(dfs)
 
     # Plots and analysis before dropping NaNs
-    plot_comparison_same_time(df, RESPONSE_NAME)
+    #plot_comparison_same_time(df, RESPONSE_NAME)
 
     df = df.drop_nans()
     linear_regression(df, FEATURE_NAMES, RESPONSE_NAME, EXPORT_TXT_RESULTS, NORMALISE_FEATURES)
 
-    plot_target_distribution(df, RESPONSE_NAME)
+    #plot_target_distribution(df, RESPONSE_NAME, transform_meters=True)
     #plot_feature_distributions(df, FEATURE_NAMES)
-    #plot_correlation_heatmap(df, RESPONSE_NAME, FEATURE_NAMES)
     #plot_feature_vs_target_scatter(df, RESPONSE_NAME, FEATURE_NAMES)
-    #plot_pairwise_scatter_matrix(df, RESPONSE_NAME, FEATURE_NAMES)
     #plot_residuals_vs_features(df, RESPONSE_NAME, FEATURE_NAMES)
+    #plot_correlation_heatmap(df, RESPONSE_NAME, FEATURE_NAMES)
+    #plot_pairwise_scatter_matrix(df, RESPONSE_NAME, FEATURE_NAMES)
 
     plt.show()
