@@ -25,14 +25,20 @@ mod_weatherfactors = False
 mod_otherfactors = False
 mod_process_results = True # Independent module, takes the .txt results and processes them rather than adding something in the txt files
 year = "2024"
-months = ["01", "07"]
+months = ["01", "03", "05", "07", "09", "11"]
 days = ["01", "06", "11", "16", "21", "26"]
-hours = [7, 16]
+hours = [7, 12, 16, 21]
 comparison_group_by = "berths"
 
 # Only used if mod_process_results is True
-results_folder_path = "output/results/A2 linköping otraf"
-results_csv_path = "output/merged_results_linköping_otraf_a2.csv"
+results_folder_path = "output/results/A3 linköping otraf fordonstyp_76"
+results_csv_path = "output/merged_results_linköping_otraf_a3_76.csv"
+
+# XLSX with details on the vehicles to filter by vehicle operator for uncertainty calculation; if None, no filter by vehicle operator will be done
+vehicles_xlsx_path = "C:/Users/ElricM/OneDrive - VTI/Documents/Data and information/2022-04-12_FRIDA_Fordonsrapporter.xlsx"
+# If vehicles_xlsx_path is not None, what operator to use filter by?
+vehicle_operator = "Nobina Sverige AB" # What bus operator (e.g. Nobina Sverige AB)
+vehicle_specific_type = "76" # What specific bus type as specified in the XLSX file (e.g. in the column "ÖstgötaTrafikens fordonstyp", so 72, 74 etc)
 
 
 # Whole day import
@@ -79,7 +85,9 @@ def process_terminal(terminal_coordinates_df, terminal_name, date, time_ranges):
             static_data[provider] = gtfs_import.koda_import_static(provider=provider, date=date, import_method="local", delete_tempdata=False)
         imprecision_pooled_mean, imprecision_pooled_std, imprecision_trajs = uncertainty.get_imprecision(terminal_name, date, providers, time_range=[time_ranges[0][0][0], time_ranges[-1][1][0]+1], min_trips_for_clustering=3, 
                                                                                                          vehiclepositions_path=export_path, paths_gpkg=False, verbose=False, dbscan_global_min_samples=3, dbscan_global_eps_percentile=20,
-                                                                                                         comparison_group_by=comparison_group_by, static_data=static_data
+                                                                                                         comparison_group_by=comparison_group_by, static_data=static_data, berth_dist_threshold=6, expected_berth_dist_threshold=9, 
+                                                                                                         nb_consecutive_berths=6, traj_gap_seconds=12, max_speed_stopped=1, stop_id_pattern="90220050000500", 
+                                                                                                         vehicles_xlsx_path=vehicles_xlsx_path, vehicle_operator=vehicle_operator, vehicle_specific_type=vehicle_specific_type
                                                                                                         )
         uncertainty_results = uncertainty_results | {"imprecision": {"imprecision_val": imprecision_pooled_mean, "imprecision_std": imprecision_pooled_std, "imprecision_trajs": imprecision_trajs}}
     return uncertainty_results
@@ -199,16 +207,19 @@ if mod_koda_import or mod_uncertainty or mod_weatherfactors or mod_otherfactors:
                 print("****************************************")
                 print("****************************************")
                 print("****************************************")
-                for terminal_name in terminal_names:
-                    uncertainty_results = process_terminal(terminal_coordinates_df, terminal_name, date, time_ranges)
-                    otherfactors_results = {}
-                    weatherfactors_results = {}
-                    if mod_weatherfactors:
-                        weatherfactors_results = get_weatherfactors(terminal_coordinates_df, terminal_name, date, time_ranges)
-                    if mod_otherfactors:
-                        otherfactors_results = get_otherfactors(terminal_coordinates_df, terminal_name, date, time_ranges)
-                    results = uncertainty_results | otherfactors_results | weatherfactors_results
-                    export_results(results, date, time_ranges)
+                try:
+                    for terminal_name in terminal_names:
+                        uncertainty_results = process_terminal(terminal_coordinates_df, terminal_name, date, time_ranges)
+                        otherfactors_results = {}
+                        weatherfactors_results = {}
+                        if mod_weatherfactors:
+                            weatherfactors_results = get_weatherfactors(terminal_coordinates_df, terminal_name, date, time_ranges)
+                        if mod_otherfactors:
+                            otherfactors_results = get_otherfactors(terminal_coordinates_df, terminal_name, date, time_ranges)
+                        results = uncertainty_results | otherfactors_results | weatherfactors_results
+                        export_results(results, date, time_ranges)
+                except FileNotFoundError as e:
+                    print(f"File not found error: {e}. Skipping this date/time range.")
 
 if mod_process_results:
     results_df = process_results(results_folder_path, output_csv=True, csv_path=results_csv_path)

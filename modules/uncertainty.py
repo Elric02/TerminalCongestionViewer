@@ -10,6 +10,7 @@ import geopandas as gpd
 from shapely.geometry import Point, LineString
 import pandas as pd
 import os
+import openpyxl
 
 
 def get_data(terminal, providers, date, vehiclepositions_path=None):
@@ -110,7 +111,7 @@ def export_to_gpkg(df_vehiclepositions, df_clusters, terminal, date, export_inte
         pandas_df = subset.to_pandas()
  
         # POINTS GEOPACKAGE
-        output_points_gpkg = f"output/geopackages/geopackage_{terminal}_{date}.gpkg"
+        output_points_gpkg = f"output/geopackages/geopackage_{terminal}_{date}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.gpkg"
         geometry = [
             Point(lon, lat)
             for lon, lat in zip(pandas_df["longitude"], pandas_df["latitude"])
@@ -124,7 +125,7 @@ def export_to_gpkg(df_vehiclepositions, df_clusters, terminal, date, export_inte
 
         # PATHS GEOPACKAGE
         if paths_gpkg:
-            output_lines_gpkg = f"output/geopackages/geopackage_{terminal}_{date}_paths.gpkg"
+            output_lines_gpkg = f"output/geopackages/geopackage_{terminal}_{date}_{datetime.now().strftime("%Y%m%d_%H%M%S")}_paths.gpkg"
             trips_list = subset["trip_id"].unique().sort().to_list()
             trajectory_gdfs = []
             for j, trip in enumerate(trips_list):
@@ -395,7 +396,8 @@ def comparison(df, group_by, terminal, date, min_points_in_traj, min_trips_for_c
 def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in_traj=10, min_trips_for_clustering=5, vehiclepositions_path=None,
                     discard_if_several_clusters=False, export_intermediate_to_csv=False, export_final_to_csv=True, verbose=False,
                     dbscan_global_eps_percentile=12, dbscan_global_min_samples=3, paths_gpkg=True, comparison_group_by="routes", static_data=None,
-                    berth_dist_threshold=6, expected_berth_dist_threshold=9, nb_consecutive_berths=6, traj_gap_seconds=12, max_speed_stopped=1, stop_id_pattern="90220050000500"):
+                    berth_dist_threshold=6, expected_berth_dist_threshold=9, nb_consecutive_berths=6, traj_gap_seconds=12, max_speed_stopped=1, stop_id_pattern="90220050000500",
+                    vehicles_xlsx_path=None, vehicle_operator=None, vehicle_specific_type=None):
     """Get the imprecision value(s) for the desired location and timeframe
 
     :param terminal: The desired terminal name
@@ -411,7 +413,7 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
     :type min_points_in_traj: int
     :param min_trips_for_clustering: Minimum number of trips/trajectories in the route+dir set for the clustering (or trajs in the berths cluster) and analysis to happen
     :type min_trips_for_clustering: int
-    :param vehiclepositions_path: Path to the CSV file containing the VehiclePositions data for the desired terminal, date and providers. If None, it will be generated automatically
+    :param vehiclepositions_path: Path to the CSV file containing the VehiclePositions data for the desired terminal, date and providers. If None, it will be guessed
     :type vehiclepositions_path: str or None
     :param discard_if_several_clusters: (Routes comparison only) Whether the program should discard the route+dirs for which clustering has yield to more than 1 cluster (not counting outliers)
     :type discard_if_several_clusters: Boolean
@@ -443,10 +445,36 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
     :type max_speed_stopped: float
     :param stop_id_pattern: (Berths comparison only) Prefix that identifies terminal stop IDs, e.g. "90220050000500" for Linköping Centrum stops.
     :type stop_id_pattern: str
+    :param vehicles_xlsx_path: Path to the XLSX file containing vehicle details for filtering. If None, no filtering by vehicle operator will be applied.
+    :type vehicles_xlsx_path: str or None
+    :param vehicle_operator: Only used if vehicles_xlsx_path is not None. The operator to filter vehicles by.
+    :type vehicle_operator: str or None
+    :param vehicle_specific_type: Only used if vehicles_xlsx_path is not None. The specific bus type as specified in the XLSX file (e.g. in the column "ÖstgötaTrafikens fordonstyp", so 72, 74 etc)
+    :type vehicle_specific_type: str or None
     :return: Tuple containing the pooled mean and standard deviation of imprecision, plus counts of kept and discarded trajectories.
     :rtype: tuple
     """
     data = get_data(terminal, providers, date, vehiclepositions_path=vehiclepositions_path)
+    # Filter by vehicle operator if vehicles_xlsx_path is provided
+    if vehicles_xlsx_path is not None:
+        print("Filtering by vehicles from vehicle operator:", vehicle_operator, ", with type:", vehicle_specific_type)
+        vehicles_df = pd.read_excel(
+            vehicles_xlsx_path,
+            usecols=["Trafikföretag", "ÖstgötaTrafikens fordonstyp", "vehiclegid"],
+            dtype={"vehiclegid": str},
+        )
+        valid_vehicle_ids = (
+            vehicles_df.loc[
+                (vehicles_df["Trafikföretag"] == vehicle_operator)
+                & (vehicles_df["ÖstgötaTrafikens fordonstyp"] == vehicle_specific_type),
+                "vehiclegid",
+            ]
+            .dropna()
+            .unique()
+            .tolist()
+        )
+        data = data.filter(pl.col("vehicle.id").is_in(valid_vehicle_ids))
+    # Filter by time range
     start = datetime.timestamp(datetime.strptime(f"{date} {time_range[0]:02d}:00:00", "%Y-%m-%d %H:%M:%S"))
     end = datetime.timestamp(datetime.strptime(f"{date} {(time_range[1]-1):02d}:59:59", "%Y-%m-%d %H:%M:%S"))
     data = data.filter(
@@ -470,31 +498,36 @@ def get_imprecision(terminal, date, providers, time_range=[5, 24], min_points_in
         os.makedirs(directory, exist_ok=True)
         results_df.write_csv(os.path.join(directory, f'uncertainty_comparison_{terminal}_{("_".join(providers))}_{date}_{time_range[0]+1}.csv'))
 
-    # Get pooled mean and pooled standard deviation across rows
-    sspd_results_df = results_df.filter(pl.col("measure") == "sspd")
-    means = sspd_results_df["mean"].to_numpy()
-    stds = sspd_results_df["std"].to_numpy()
-    ns = sspd_results_df["nb_pairs"].to_numpy()
-    pooled_mean = (ns * means).sum() / ns.sum()
-    # Within-group sum of squares: Σ (nᵢ - 1) * sᵢ²
-    within_ss = ((ns - 1) * stds**2).sum()
-    # Between-group sum of squares: Σ nᵢ * (x̄ᵢ - x̄_pooled)²
-    between_ss = (ns * (means - pooled_mean)**2).sum()
-    pooled_std = np.sqrt((within_ss + between_ss) / (ns.sum() - 1))
+    try:
+        # Get pooled mean and pooled standard deviation across rows
+        sspd_results_df = results_df.filter(pl.col("measure") == "sspd")
+        means = sspd_results_df["mean"].to_numpy()
+        stds = sspd_results_df["std"].to_numpy()
+        ns = sspd_results_df["nb_pairs"].to_numpy()
+        pooled_mean = (ns * means).sum() / ns.sum()
+        # Within-group sum of squares: Σ (nᵢ - 1) * sᵢ²
+        within_ss = ((ns - 1) * stds**2).sum()
+        # Between-group sum of squares: Σ nᵢ * (x̄ᵢ - x̄_pooled)²
+        between_ss = (ns * (means - pooled_mean)**2).sum()
+        pooled_std = np.sqrt((within_ss + between_ss) / (ns.sum() - 1))
 
-    # Intermediate results for calculation of imprecision
-    if len(results_count) > 2:
-        imprecision_trajs = {
-            "kept": results_count[0],
-            "multiple_clusters": results_count[1],
-            "too_few_trajs_main_cluster": results_count[2],
-            "too_few_trajs_general": results_count[3]
-        }
-    else: # Was likely done by berths instead of route+dirs
-        imprecision_trajs = {
-            "kept": results_count[0],
-            "too_few_trajs_general": results_count[1]
-        }
+        # Intermediate results for calculation of imprecision
+        if len(results_count) > 2:
+            imprecision_trajs = {
+                "kept": results_count[0],
+                "multiple_clusters": results_count[1],
+                "too_few_trajs_main_cluster": results_count[2],
+                "too_few_trajs_general": results_count[3]
+            }
+        else: # Was likely done by berths instead of route+dirs
+            imprecision_trajs = {
+                "kept": results_count[0],
+                "too_few_trajs_general": results_count[1]
+            }
 
-    print("-- Imprecision calculations done! --")
-    return pooled_mean, pooled_std, imprecision_trajs
+        print("-- Imprecision calculations done! --")
+        return pooled_mean, pooled_std, imprecision_trajs
+    # This happens if there was no compared trajectory, then "nb_pairs" column is missing
+    except pl.exceptions.ColumnNotFoundError:
+        print("Column 'nb_pairs' not found, likely because there were no compared trajectories. Returning None values.")
+        return None, None, None
