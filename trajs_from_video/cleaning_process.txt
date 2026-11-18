@@ -1,0 +1,20 @@
+**PART 1: Clipping of the zone**
+1. Create scratch layer and draw desired polygon for mask (the zone that points need to be in to be kept) based on minimum view in videos
+2. Select by location -> points (layer 1) within polygon (scratch layer)
+3. Extract selected features as new layer
+4. Save new layer as CSV
+5. Repeat steps 2-4 for each points layer (if there are multiple)
+
+**PART 2: ID switching, fake vehicles, false detection and other minor issues**
+1. Change parameters in cleaning_trajs.py
+2. Run cleaning_trajs.py
+
+**PART 3: Issue with some bboxes due to bus obfuscation when overtaken**
+1. Change parameters in cleaning_trajs.py
+2. Run cleaning_trajs.py
+3. In QGIS, visualize the points with their tracking ID and their frame ID, and write down the points that still need to be cleaned
+4. Delete the corresponding rows in the CSV
+
+(**PART 4: timestamp column**)
+1. Change parameters in add_timestamps.py
+2. Run add_timestamps.py
