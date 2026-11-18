@@ -1,0 +1,9 @@
+notebooks/modules
+outputs
+
+*.mp4
+*.zip
+*.jpg
+*.txt
+*.pt
+*.png

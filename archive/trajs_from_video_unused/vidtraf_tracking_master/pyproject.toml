@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vidtraf-tracking"
+version = "0.1.0"
+description = "Detection and tracking of road users from fixed-camera and drone video"
+requires-python = ">=3.9"
+dependencies = [
+    "opencv-python",
+    "numpy",
+    "scipy",
+    "pandas",
+    "pyarrow",
+    "scikit-learn",
+    "shapely",
+    "pyproj",
+    "plotly",
+    "rasterio",     # homography_tools.py imports this unconditionally (georeferencing, not just elevation)
+]
+
+[project.optional-dependencies]
+tracking  = ["ultralytics"]    # YOLO detection + ByteTrack
+anonymize = ["deface"]         # Face anonymization for ground-level video
+plots     = ["matplotlib"]     # Validation plots
+dev       = ["opencv-stubs"]   # IDE type stubs for cv2
+
+[tool.setuptools]
+py-modules = [
+    "elevation_projection",
+    "homography_tools",
+    "trajectory",
+    "traffic_analysis",
+    "video_utils",
+    "ti_utils",
+]
