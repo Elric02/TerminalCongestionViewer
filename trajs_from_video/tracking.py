@@ -8,7 +8,7 @@ from pathlib import Path
 TERMINAL_SHORT_NAME = "hudd"
 PART = "1"
 OUTPUT_FOLDER_PATH = Path("../output/trajs_from_video/tracking")
-MODEL_PATH = "models/yolo12s.pt"
+MODEL_PATH = "models/yolov26l-visdrone-dronefreak.pt"
 VIDEO_PATH = Path(f"C:/Users/ElricM/OneDrive - VTI/Videos/Huddinge 260612/DJI_20260612071612_0017_D.MP4")
 CONF_THRESHOLD = 0.5
 IOU_THRESHOLD = 0.7
@@ -35,14 +35,14 @@ frame_idx = 0
 unique_track_ids = set()
 
 # Output video path
-output_video_path = OUTPUT_FOLDER_PATH / f"yolo12s_{TERMINAL_SHORT_NAME}_part{PART}.mp4"
+output_video_path = OUTPUT_FOLDER_PATH / f"{MODEL_PATH.split('/')[-1].split('.')[0]}_{TERMINAL_SHORT_NAME}_part{PART}.mp4"
 
 # Video writer
 fourcc = cv2.VideoWriter_fourcc(*"mp4v")
 out = cv2.VideoWriter(str(output_video_path), fourcc, fps, (width, height))
 
 # CSV output
-csv_path = OUTPUT_FOLDER_PATH / f"yolo12s_{TERMINAL_SHORT_NAME}_part{PART}.csv"
+csv_path = OUTPUT_FOLDER_PATH / f"{MODEL_PATH.split('/')[-1].split('.')[0]}_{TERMINAL_SHORT_NAME}_part{PART}.csv"
 csv_file = open(str(csv_path), mode="w", newline="", encoding="utf-8")
 writer = csv.writer(csv_file)
 writer.writerow([
