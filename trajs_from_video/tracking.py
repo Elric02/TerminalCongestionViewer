@@ -9,7 +9,10 @@ TERMINAL_SHORT_NAME = "hudd"
 PART = "1"
 OUTPUT_FOLDER_PATH = Path("../output/trajs_from_video/tracking")
 MODEL_PATH = "models/yolo12s.pt"
-VIDEO_PATH = Path(f"C:/Users/ElricM/OneDrive - VTI/Videos/Lkpg_bus_terminal_stabilized_part{PART}.mp4")
+VIDEO_PATH = Path(f"C:/Users/ElricM/OneDrive - VTI/Videos/Huddinge 260612/DJI_20260612071612_0017_D.MP4")
+CONF_THRESHOLD = 0.5
+IOU_THRESHOLD = 0.7
+NB_FRAMES = 600 # Number of frames to process (set to None to process the entire video)
 
 
 model = YOLO(MODEL_PATH)
@@ -47,7 +50,7 @@ writer.writerow([
     "x1", "y1", "x2", "y2", "x_center", "y_center"
 ])
 
-while True:
+while NB_FRAMES is None or frame_idx < NB_FRAMES:
     ret, frame = cap.read()
     if not ret:
         break
@@ -59,8 +62,8 @@ while True:
         frame,
         persist=True,
         tracker="botsort.yaml",
-        conf=0.7,
-        iou=0.7,
+        conf=CONF_THRESHOLD,
+        iou=IOU_THRESHOLD,
         verbose=False
     )
 

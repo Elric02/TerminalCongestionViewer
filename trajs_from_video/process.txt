@@ -8,6 +8,15 @@
 1. Update parameters in tracking.py
 2. Run tracking.py
 
+**PART 3: Homography matrix**
+1. Download orthophoto of the terminal from SLU (or elsewhere)
+2. (Optional) Clip orthophoto in QGIS
+3. Update parameters in homography.py
+4. Run homography.py
+
+**PART 4: Bounding boxes to georeferenced points**
+1. TBD
+
 
 ***CLEANING***
 
